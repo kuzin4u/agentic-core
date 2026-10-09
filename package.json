@@ -1,13 +1,17 @@
 {
   "name": "@kuzin4u/agentic-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Общие механизмы агентной коммерции: каноническая сериализация, журнал с хэш-цепочкой, удержания резерв/закрепление/освобождение, идемпотентность, подпись обращений, доставка событий, деньги в копейках",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" },
+    "./pao": { "types": "./dist/src/pao/index.d.ts", "default": "./dist/src/pao/index.js" }
+  },
   "engines": { "node": ">=20" },
-  "scripts": { "build": "tsc", "test": "vitest run", "check": "tsc --noEmit", "vectors": "node vectors/gen.mjs", "scan:secrets": "python3 .claude/hooks/scan_secrets.py ." },
-  "devDependencies": { "@types/node": "^22.20.5", "typescript": "^5.5.0", "vitest": "^5.0.3" },
+  "scripts": { "build": "tsc -p tsconfig.build.json", "prepare": "tsc -p tsconfig.build.json","test": "vitest run", "check": "tsc --noEmit", "vectors": "node vectors/gen.mjs", "gen:pao": "node scripts/gen-pao.mjs", "scan:secrets": "python3 .claude/hooks/scan_secrets.py ." },
+  "devDependencies": { "@types/node": "^22.20.5", "typescript": "^5.5.0", "vitest": "^5.0.3", "yaml": "^2.9.1" },
   "dependencies": {}
 }
