@@ -132,6 +132,31 @@ describe("ПАО: клиент против заглушки", () => {
     expect((await rejected(client.call("POST /pao/v1/mandates", { body: REQ }))).retry).toBe("after_fix");
   });
 
+  it("baseUrl: хвостовые «/» срезаются за линейное время (CodeQL js/polynomial-redos)", async () => {
+    const { signer } = newEd25519Signer("k-x");
+    const bad = "http://h" + "/".repeat(200_000) + "x";
+    const t0 = performance.now();
+    new PaoClient({ baseUrl: bad, agentCode: AGENT, signer });
+    expect(performance.now() - t0).toBeLessThan(50);
+    const { stub, baseUrl } = await setup();
+    const client = new PaoClient({ baseUrl: baseUrl + "///", agentCode: AGENT, signer: newEd25519Signer("k-y").signer });
+    await client.call("GET /.well-known/pao-configuration", {});
+    expect(stub.violations).toEqual([]);
+  });
+
+  it("Retry-After: длинная плохая строка разбирается за миллисекунды, повтора нет", async () => {
+    const { signer } = newEd25519Signer("k-x");
+    for (const header of ["1".repeat(200_000) + "x", " ".repeat(200_000) + "1a", "9".repeat(200_000)]) {
+      const fake: typeof fetch = async () =>
+        new Response(JSON.stringify({ code: "RATE_LIMITED", message: "", retry: "after_fix" }), { status: 429, headers: { "retry-after": header } });
+      const client = new PaoClient({ baseUrl: "http://h", agentCode: AGENT, signer, fetch: fake, sleep: async () => {} });
+      const t0 = performance.now();
+      const e = await rejected(client.call("GET /.well-known/pao-configuration", {}));
+      expect(performance.now() - t0).toBeLessThan(50);
+      expect([e.code, e.attempts]).toEqual(["RATE_LIMITED", 1]);
+    }
+  });
+
   it("сбой сети: повтор с тем же Idempotency-Key", async () => {
     let dropped = false;
     const flaky: typeof fetch = async (url, init) => {

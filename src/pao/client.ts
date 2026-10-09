@@ -64,7 +64,7 @@ export class PaoClient {
       nonce: () => randomUUID(),
       idempotencyKey: () => randomUUID(),
       ...opts,
-      baseUrl: opts.baseUrl.replace(/\/+$/, ""),
+      baseUrl: trimTrailingSlashes(opts.baseUrl),
     };
   }
 
@@ -90,7 +90,7 @@ export class PaoClient {
     for (let attempt = 1; ; attempt++) {
       const headers: Record<string, string> = {
         "x-agent-code": this.o.agentCode,
-        "x-timestamp": this.o.now().toISOString().replace(/\.\d{3}Z$/, "Z"),
+        "x-timestamp": this.o.now().toISOString().slice(0, 19) + "Z",
         "x-nonce": this.o.nonce(),
       };
       if (key) headers["idempotency-key"] = key;
@@ -140,7 +140,21 @@ function parseError(text: string): PaoErrorBody | undefined {
 /** Retry-After: секунды или HTTP-дата. */
 function parseRetryAfter(v: string | null, now: Date): number | undefined {
   if (v === null) return undefined;
-  if (/^\d+$/.test(v.trim())) return Number(v.trim());
-  const t = Date.parse(v);
+  const s = v.trim();
+  if (s === "") return undefined;
+  if (isDigits(s)) return Number(s);
+  const t = Date.parse(s);
   return Number.isFinite(t) ? Math.max(0, Math.ceil((t - now.getTime()) / 1000)) : undefined;
+}
+
+const isDigits = (s: string): boolean => {
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) < 48 || s.charCodeAt(i) > 57) return false;
+  return true;
+};
+
+/** Без регулярного выражения: `/\/+$/` на длинной строке из «/» перебирает за квадратичное время (CodeQL js/polynomial-redos). */
+function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end--;
+  return s.slice(0, end);
 }
