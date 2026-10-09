@@ -7,6 +7,7 @@ import {
   PaoClient, PaoCallError, PaoStub, PAO_SPEC_SHA256, PAO_VERSION, validatePao,
   type MandateRequest, type Mandate, type PaoClientOptions, type PaoStubOptions,
 } from "../src/pao/index.js";
+import { routePattern } from "../src/pao/route.js";
 
 const AGENT = "nspk:agent:buyref-01:v3";
 const REQ: MandateRequest = {
@@ -24,7 +25,7 @@ async function setup(stubOpts: Partial<PaoStubOptions> = {}, clientOpts: Partial
   const baseUrl = await stub.start();
   const sleeps: number[] = [];
   const client = new PaoClient({ baseUrl, agentCode: AGENT, signer, sleep: async (ms) => { sleeps.push(ms); }, ...clientOpts });
-  return { stub, client, sleeps, publicKey };
+  return { stub, client, sleeps, publicKey, baseUrl };
 }
 
 const rejected = (p: Promise<unknown>) => p.then(() => { throw new Error("ожидался отказ"); }, (e: unknown) => e as PaoCallError);
@@ -150,6 +151,39 @@ describe("ПАО: клиент против заглушки", () => {
     await stub!.close();
     const late = await setup({}, { now: () => new Date(Date.now() - 3600_000) });
     expect((await rejected(late.client.call("GET /pao/v1/agent", {}))).code).toBe("SIGNATURE_INVALID");
+  });
+
+  it("шаблон пути: все спецсимволы в буквальных частях экранируются (CodeQL js/incomplete-sanitization)", () => {
+    const re = routePattern("/a+b.c(d)|e*/{id}/f?g[h]$^\\");
+    expect(re.exec("/a+b.c(d)|e*/x 1/f?g[h]$^\\")?.groups).toEqual({ id: "x 1" });
+    for (const p of ["/aab.c(d)|e*/1/f?g[h]$^\\", "/a+bXc(d)|e*/1/f?g[h]$^\\", "/a+b.cd|e*/1/fg[h]$^\\", "/a+b.c(d)|e*/1/2/f?g[h]$^\\"]) {
+      expect(re.test(p)).toBe(false);
+    }
+    expect(() => routePattern("/x/{a-b}")).toThrow("PAO_PATH_TEMPLATE");
+  });
+
+  it("маршруты: буквальные части пути сравниваются точно, параметр — ровно один сегмент", async () => {
+    const { stub, baseUrl } = await setup();
+    expect((await fetch(baseUrl + "/.well-known/pao-configuration")).status).toBe(200);
+    expect((await fetch(baseUrl + "/Xwell-known/pao-configuration")).status).toBe(404);
+    expect((await fetch(baseUrl + "/pao/v1/mandates/a/b/verify")).status).toBe(404);
+    expect(stub.violations).toEqual([
+      "GET /Xwell-known/pao-configuration: нет в спецификации",
+      "GET /pao/v1/mandates/a/b/verify: нет в спецификации",
+    ]);
+  });
+
+  it("исключение в обработчике: в ответе только код ПАО, подробности — в локальный лог", async () => {
+    const logged: unknown[] = [];
+    const { client, stub } = await setup({
+      handlers: { "GET /pao/v1/mandates/{id}": () => { throw new Error("секрет: строка подключения"); } },
+      log: (_m, e) => logged.push(e),
+    });
+    const e = await rejected(client.call("GET /pao/v1/mandates/{id}", { path: { id: "MND-1" } }));
+    expect([e.status, e.code, e.retry, e.attempts]).toEqual([500, "UPSTREAM_UNAVAILABLE", "never", 1]);
+    expect(e.body).toEqual({ code: "UPSTREAM_UNAVAILABLE", message: "внутренняя ошибка заглушки", retry: "never" });
+    expect((logged[0] as Error).message).toBe("секрет: строка подключения");
+    expect(stub.violations).toEqual(["GET /pao/v1/mandates/MND-1: исключение в заглушке"]);
   });
 
   it("заглушка фиксирует ответ обработчика вне схемы", async () => {

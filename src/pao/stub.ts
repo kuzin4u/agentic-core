@@ -4,6 +4,7 @@ import { IdempotencyConflict, IdempotencyStore } from "../idempotency.js";
 import { verifyRequest } from "../signing.js";
 import { PAO_OPERATIONS, type Configuration, type ErrorCode, type Error as PaoErrorBody, type PaoOperationKey, type PaoOperations } from "./types.js";
 import { validatePao } from "./validate.js";
+import { routePattern } from "./route.js";
 
 /** Коды ошибок: HTTP-статус и `retry` — таблица AGENT-PROTOCOL.md §6 (ПАО 1.1.0). */
 const ERRORS: Record<ErrorCode, [number, PaoErrorBody["retry"]]> = {
@@ -51,6 +52,8 @@ export interface PaoStubOptions {
   configuration?: Configuration;
   skewSec?: number;
   now?: () => number;
+  /** Локальный лог исключений обработчиков; по умолчанию console.error. В ответ клиенту подробности не попадают. */
+  log?: (message: string, error: unknown) => void;
 }
 
 export interface PaoStubCall { op: PaoOperationKey | undefined; status: number; nonce?: string; idempotencyKey?: string; replayed: boolean }
@@ -67,7 +70,7 @@ export class PaoStub {
   private routes = Object.entries(PAO_OPERATIONS).map(([op, s]) => ({
     op: op as PaoOperationKey,
     spec: s,
-    re: new RegExp("^" + s.path.replace(/\{([^}]+)\}/g, "(?<$1>[^/]+)").replace(/\./g, "\\.") + "$"),
+    re: routePattern(s.path),
   }));
 
   constructor(private readonly opts: PaoStubOptions) {
@@ -84,7 +87,14 @@ export class PaoStub {
 
   async start(): Promise<string> {
     this.server = createServer((req, res) => {
-      this.handle(req, res).catch((e) => this.send(res, 500, { error: String(e) }));
+      this.handle(req, res).catch((e: unknown) => {
+        // Подробности — только в локальный лог; в ответе код ПАО и краткое сообщение.
+        (this.opts.log ?? console.error)("PaoStub: исключение в обработке запроса", e);
+        this.violations.push(`${req.method} ${req.url}: исключение в заглушке`);
+        if (res.headersSent) return void res.end();
+        const body: PaoErrorBody = { code: "UPSTREAM_UNAVAILABLE", message: "внутренняя ошибка заглушки", retry: "never" };
+        this.send(res, 500, body);
+      });
     });
     await new Promise<void>((r) => this.server!.listen(0, "127.0.0.1", r));
     return `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`;
