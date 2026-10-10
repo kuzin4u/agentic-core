@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJson } from "../canonical.js";
 import { signRequest, type Signer } from "../signing.js";
-import { PAO_OPERATIONS, type PaoOperations, type PaoOperationKey, type Error as PaoErrorBody, type ErrorCode } from "./types.js";
+import { PAO_ERRORS, PAO_OPERATIONS, type PaoOperations, type PaoOperationKey, type Error as PaoErrorBody, type ErrorCode } from "./types.js";
 
 export type RetryAdvice = PaoErrorBody["retry"];
 
@@ -24,8 +24,9 @@ export class PaoCallError extends Error {
     super(body ? `${body.code}: ${body.message}` : `PAO_HTTP_${status}`, options);
   }
   get code(): ErrorCode | undefined { return this.body?.code; }
-  /** Что делать вызывающему (AGENT-PROTOCOL.md §6). `new_key` — нужен новый ключ подписи агента. */
-  get retry(): RetryAdvice { return this.body?.retry ?? "never"; }
+  /** Что делать вызывающему (AGENT-PROTOCOL.md §6, РП16): по x-pao-errors, если код и HTTP-статус совпали с таблицей, иначе из тела.
+   *  `new_key` — нужен новый ключ подписи агента, не ключ идемпотентности. */
+  get retry(): RetryAdvice { return retryAdvice(this.status, this.body); }
 }
 
 export interface PaoClientOptions {
@@ -47,9 +48,10 @@ export interface PaoClientOptions {
   inspectResponse?: (r: { op: PaoOperationKey; status: number; headers: Headers; body: string }) => void;
 }
 
-/** Клиент ПАО: подпись каждого обращения, Idempotency-Key для изменяющих методов, повторы.
- *  Повтор с тем же Idempotency-Key, новыми nonce и подписью — при `retry: same_key`, сбое сети,
- *  429/503 с Retry-After. Остальные отказы — вызывающему как PaoCallError. */
+/** Клиент ПАО: подпись каждого обращения, Idempotency-Key для изменяющих методов, повторы (РП16).
+ *  Повтор с тем же Idempotency-Key, новыми nonce и подписью — при `retry: same_key` по x-pao-errors, сбое сети,
+ *  429/503 с Retry-After без тела ПАО. Ожидание — не меньше Retry-After; Retry-After больше `maxRetryAfterSec`
+ *  или исчерпаны попытки — отказ вызывающему. Остальные отказы — вызывающему как PaoCallError. */
 export class PaoClient {
   private readonly o: Required<Omit<PaoClientOptions, "inspectResponse">> & Pick<PaoClientOptions, "inspectResponse">;
 
@@ -121,11 +123,21 @@ export class PaoClient {
 
       const err = parseError(text);
       const retryAfter = res.status === 429 || res.status === 503 ? parseRetryAfter(res.headers.get("retry-after"), this.o.now()) : undefined;
-      const transient = retryAfter !== undefined && retryAfter <= this.o.maxRetryAfterSec;
-      if (last || !(transient || err?.retry === "same_key")) throw new PaoCallError(res.status, err, attempt, key);
-      await this.o.sleep(transient ? retryAfter * 1000 : this.o.backoffMs(attempt));
+      // Без тела ПАО (прокси, балансировщик) 429/503 с Retry-After — временный отказ, повтор безопасен благодаря ключу.
+      const sameKey = err ? retryAdvice(res.status, err) === "same_key" : retryAfter !== undefined;
+      const tooLong = retryAfter !== undefined && retryAfter > this.o.maxRetryAfterSec;
+      if (last || !sameKey || tooLong) throw new PaoCallError(res.status, err, attempt, key);
+      await this.o.sleep(retryAfter !== undefined ? retryAfter * 1000 : this.o.backoffMs(attempt));
     }
   }
+}
+
+/** `retry` по x-pao-errors (РП16), если пара «код, HTTP-статус» есть в таблице. Иначе — как прислала Платформа:
+ *  код новее этой версии ПАО или отказ вне таблицы (например, 500 с кодом UPSTREAM_UNAVAILABLE). */
+function retryAdvice(status: number, body: PaoErrorBody | undefined): RetryAdvice {
+  if (!body) return "never";
+  const row = Object.hasOwn(PAO_ERRORS, body.code) ? PAO_ERRORS[body.code] : undefined;
+  return row && row.http === status ? row.retry : body.retry;
 }
 
 function parseError(text: string): PaoErrorBody | undefined {

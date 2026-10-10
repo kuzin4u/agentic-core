@@ -80,6 +80,19 @@ for (const [path, item] of Object.entries(spec.paths)) {
   }
 }
 
+// Таблица ошибок (РП16): x-pao-errors — источник HTTP-статуса и retry по коду; перечень обязан совпадать с ErrorCode.
+const xErrors = spec["x-pao-errors"]?.errors;
+if (!Array.isArray(xErrors)) throw new Error("NO_X_PAO_ERRORS");
+const codes = spec.components.schemas.ErrorCode.enum;
+const retries = spec.components.schemas.Error.properties.retry.enum;
+const listed = xErrors.map((e) => e.code);
+for (const e of xErrors) {
+  if (!codes.includes(e.code)) throw new Error(`X_PAO_ERRORS_UNKNOWN_CODE ${e.code}`);
+  if (!retries.includes(e.retry)) throw new Error(`X_PAO_ERRORS_RETRY ${e.code} ${e.retry}`);
+  if (!Number.isInteger(e.http) || e.http < 400 || e.http > 599) throw new Error(`X_PAO_ERRORS_HTTP ${e.code} ${e.http}`);
+}
+for (const c of codes) if (listed.filter((x) => x === c).length !== 1) throw new Error(`X_PAO_ERRORS_COVERAGE ${c}`);
+
 const paramsType = (names, required) =>
   names.length ? `{ ${names.map((n) => `${key(n)}${required(n) ? "" : "?"}: string;`).join(" ")} }` : "never";
 
@@ -113,6 +126,10 @@ out.push("}");
 out.push("");
 const runtimeOps = Object.fromEntries(ops.map(({ key: k, summary, ...rest }) => [k, rest]));
 out.push(`export const PAO_OPERATIONS: Record<PaoOperationKey, PaoOperationSpec> = ${JSON.stringify(runtimeOps, null, 2)};`);
+out.push("");
+out.push("/** Ошибки ПАО из x-pao-errors (РП16): HTTP-статус и `retry` по коду. Смысл `retry` — AGENT-PROTOCOL.md §6. */");
+out.push(`export const PAO_ERRORS: Record<ErrorCode, { http: number; retry: Error["retry"]; description: string }> = ${JSON.stringify(
+  Object.fromEntries(xErrors.map((e) => [e.code, { http: e.http, retry: e.retry, description: e.description }])), null, 2)};`);
 out.push("");
 out.push("/** Схемы components.schemas как в спецификации — для проверки тел в сервере-заглушке. */");
 out.push(`export const PAO_SCHEMAS: Record<string, unknown> = ${JSON.stringify(spec.components.schemas, null, 2)};`);
