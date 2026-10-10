@@ -1,8 +1,8 @@
 // Сгенерировано scripts/gen-pao.mjs из spec/agent-protocol.yaml — не править вручную (К5).
-// Протокол агентских операций (ПАО) 1.1.0, sha-256 e6725aa4270155be5d0606cb366ca095fedc13a7d4e6c7b9500d25addf945ecb
+// Протокол агентских операций (ПАО) 1.2.0, sha-256 4f42e8b62599c88a8291ef3dd797c92e00a4932067eef23271c76943e4407940
 
-export const PAO_VERSION = "1.1.0";
-export const PAO_SPEC_SHA256 = "e6725aa4270155be5d0606cb366ca095fedc13a7d4e6c7b9500d25addf945ecb";
+export const PAO_VERSION = "1.2.0";
+export const PAO_SPEC_SHA256 = "4f42e8b62599c88a8291ef3dd797c92e00a4932067eef23271c76943e4407940";
 
 export type ErrorCode = "AGENT_UNKNOWN" | "AGENT_SUSPENDED" | "AGENT_KEY_REVOKED" | "SIGNATURE_INVALID" | "MANDATE_NOT_FOUND" | "MANDATE_EXPIRED" | "MANDATE_REVOKED" | "MANDATE_SCOPE" | "PRINCIPAL_SIGNATURE_PENDING" | "LIMIT_EXCEEDED" | "STATE_UNAVAILABLE" | "CONFIRMATION_REQUIRED" | "CREDENTIAL_INVALID" | "CREDENTIALS_FORBIDDEN" | "IDEMPOTENCY_REQUIRED" | "IDEMPOTENCY_CONFLICT" | "RATE_LIMITED" | "UPSTREAM_UNAVAILABLE";
 
@@ -667,6 +667,100 @@ export const PAO_OPERATIONS: Record<PaoOperationKey, PaoOperationSpec> = {
         "$ref": "#/components/schemas/Event"
       }
     }
+  }
+};
+
+/** Ошибки ПАО из x-pao-errors (РП16): HTTP-статус и `retry` по коду. Смысл `retry` — AGENT-PROTOCOL.md §6. */
+export const PAO_ERRORS: Record<ErrorCode, { http: number; retry: Error["retry"]; description: string }> = {
+  "AGENT_UNKNOWN": {
+    "http": 401,
+    "retry": "never",
+    "description": "Нет в реестре"
+  },
+  "AGENT_SUSPENDED": {
+    "http": 403,
+    "retry": "never",
+    "description": "Приостановлен"
+  },
+  "AGENT_KEY_REVOKED": {
+    "http": 401,
+    "retry": "new_key",
+    "description": "Ключ отозван или истёк"
+  },
+  "SIGNATURE_INVALID": {
+    "http": 401,
+    "retry": "after_fix",
+    "description": "Подпись, окно времени, повтор nonce"
+  },
+  "MANDATE_NOT_FOUND": {
+    "http": 404,
+    "retry": "after_human",
+    "description": "Мандат не найден"
+  },
+  "MANDATE_EXPIRED": {
+    "http": 409,
+    "retry": "after_human",
+    "description": "Мандат истёк"
+  },
+  "MANDATE_REVOKED": {
+    "http": 409,
+    "retry": "never",
+    "description": "Мандат отозван"
+  },
+  "MANDATE_SCOPE": {
+    "http": 409,
+    "retry": "after_human",
+    "description": "Продавец, категория или сумма вне мандата"
+  },
+  "PRINCIPAL_SIGNATURE_PENDING": {
+    "http": 409,
+    "retry": "after_human",
+    "description": "Мандат ещё не подписан"
+  },
+  "LIMIT_EXCEEDED": {
+    "http": 409,
+    "retry": "after_human",
+    "description": "Ограничение инструмента"
+  },
+  "STATE_UNAVAILABLE": {
+    "http": 503,
+    "retry": "same_key",
+    "description": "Состояние не подтверждено"
+  },
+  "CONFIRMATION_REQUIRED": {
+    "http": 428,
+    "retry": "after_human",
+    "description": "Нужно подтверждение"
+  },
+  "CREDENTIAL_INVALID": {
+    "http": 409,
+    "retry": "after_fix",
+    "description": "Реквизит использован, истёк, не для этого продавца"
+  },
+  "CREDENTIALS_FORBIDDEN": {
+    "http": 422,
+    "retry": "never",
+    "description": "В запросе есть платёжные реквизиты"
+  },
+  "IDEMPOTENCY_REQUIRED": {
+    "http": 400,
+    "retry": "same_key",
+    "description": "Нет ключа"
+  },
+  "IDEMPOTENCY_CONFLICT": {
+    "http": 409,
+    "retry": "after_fix",
+    "description": "Тот же ключ, другое тело"
+  },
+  "RATE_LIMITED": {
+    "http": 429,
+    "retry": "same_key",
+    "description": "Частота"
+  },
+  "UPSTREAM_UNAVAILABLE": {
+    "http": 503,
+    "retry": "same_key",
+    "description": "Компонент Платформы недоступен"
   }
 };
 

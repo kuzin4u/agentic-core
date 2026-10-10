@@ -2,31 +2,9 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { IdempotencyConflict, IdempotencyStore } from "../idempotency.js";
 import { verifyRequest } from "../signing.js";
-import { PAO_OPERATIONS, type Configuration, type ErrorCode, type Error as PaoErrorBody, type PaoOperationKey, type PaoOperations } from "./types.js";
+import { PAO_ERRORS, PAO_OPERATIONS, type Configuration, type ErrorCode, type Error as PaoErrorBody, type PaoOperationKey, type PaoOperations } from "./types.js";
 import { validatePao } from "./validate.js";
 import { routePattern } from "./route.js";
-
-/** Коды ошибок: HTTP-статус и `retry` — таблица AGENT-PROTOCOL.md §6 (ПАО 1.1.0). */
-const ERRORS: Record<ErrorCode, [number, PaoErrorBody["retry"]]> = {
-  AGENT_UNKNOWN: [401, "never"],
-  AGENT_SUSPENDED: [403, "never"],
-  AGENT_KEY_REVOKED: [401, "new_key"],
-  SIGNATURE_INVALID: [401, "after_fix"],
-  MANDATE_NOT_FOUND: [404, "after_human"],
-  MANDATE_EXPIRED: [409, "after_human"],
-  MANDATE_REVOKED: [409, "never"],
-  MANDATE_SCOPE: [409, "after_human"],
-  PRINCIPAL_SIGNATURE_PENDING: [409, "after_human"],
-  LIMIT_EXCEEDED: [409, "after_human"],
-  STATE_UNAVAILABLE: [503, "after_fix"],
-  CONFIRMATION_REQUIRED: [428, "after_human"],
-  CREDENTIAL_INVALID: [409, "after_fix"],
-  CREDENTIALS_FORBIDDEN: [422, "never"],
-  IDEMPOTENCY_REQUIRED: [400, "same_key"],
-  IDEMPOTENCY_CONFLICT: [409, "after_fix"],
-  RATE_LIMITED: [429, "after_fix"],
-  UPSTREAM_UNAVAILABLE: [503, "after_fix"],
-};
 
 export interface PaoStubAgent {
   agentCode: string;
@@ -34,7 +12,8 @@ export interface PaoStubAgent {
   keys: { kid: string; alg: string; publicKey: string; status: "ACTIVE" | "REVOKED" | "EXPIRED" }[];
 }
 
-/** Отказ, который заглушка вернёт вместо ответа. Статус и `retry` по умолчанию — из таблицы §6. */
+/** Отказ, который заглушка вернёт вместо ответа. Статус и `retry` по умолчанию — из x-pao-errors спецификации (`PAO_ERRORS`).
+ *  `retryAfterSec` — заголовок Retry-After; у 429 и 503 по умолчанию `PaoStubOptions.retryAfterSec` (РП16). */
 export interface PaoStubError { code: ErrorCode; message?: string; status?: number; retry?: PaoErrorBody["retry"]; retryAfterSec?: number }
 
 export type PaoStubReply<K extends PaoOperationKey> = { status?: number; body: PaoOperations[K]["response"] } | { error: PaoStubError };
@@ -51,6 +30,8 @@ export interface PaoStubOptions {
   handlers?: { [K in PaoOperationKey]?: PaoStubHandler<K> };
   configuration?: Configuration;
   skewSec?: number;
+  /** Retry-After у отказов 429 и 503, если в отказе не задан свой; секунд. По умолчанию 1. */
+  retryAfterSec?: number;
   now?: () => number;
   /** Локальный лог исключений обработчиков; по умолчанию console.error. В ответ клиенту подробности не попадают. */
   log?: (message: string, error: unknown) => void;
@@ -129,9 +110,11 @@ export class PaoStub {
     const query = Object.fromEntries(url.searchParams);
     const reply = (status: number, body: unknown, extra?: Record<string, string>) => this.send(res, (call.status = status), body, extra);
     const fail = (e: PaoStubError) => {
-      const [status, retry] = ERRORS[e.code];
+      const { http, retry } = PAO_ERRORS[e.code];
+      const status = e.status ?? http;
       const body: PaoErrorBody = { code: e.code, message: e.message ?? e.code, retry: e.retry ?? retry };
-      return reply(e.status ?? status, body, e.retryAfterSec !== undefined ? { "retry-after": String(e.retryAfterSec) } : undefined);
+      const after = e.retryAfterSec ?? (status === 429 || status === 503 ? (this.opts.retryAfterSec ?? 1) : undefined);
+      return reply(status, body, after !== undefined ? { "retry-after": String(after) } : undefined);
     };
 
     let agentCode = "";
@@ -206,7 +189,7 @@ export class PaoStub {
       };
     }
     this.violations.push(`${op}: нет обработчика в заглушке`);
-    return { error: { code: "UPSTREAM_UNAVAILABLE", message: "нет обработчика в заглушке", retry: "never" } };
+    return { error: { code: "UPSTREAM_UNAVAILABLE", message: "нет обработчика в заглушке", status: 500, retry: "never" } };
   }
 
   private send(res: ServerResponse, status: number, body: unknown, extra?: Record<string, string>): void {

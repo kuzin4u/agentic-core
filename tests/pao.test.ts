@@ -4,8 +4,8 @@ import { execFileSync } from "node:child_process";
 import { newEd25519Signer, sha256Hex } from "../src/index.js";
 import * as core from "../src/index.js";
 import {
-  PaoClient, PaoCallError, PaoStub, PAO_SPEC_SHA256, PAO_VERSION, validatePao,
-  type MandateRequest, type Mandate, type PaoClientOptions, type PaoStubOptions,
+  PaoClient, PaoCallError, PaoStub, PAO_ERRORS, PAO_SPEC_SHA256, PAO_VERSION, validatePao,
+  type ErrorCode, type MandateRequest, type Mandate, type PaoClientOptions, type PaoStubOptions,
 } from "../src/pao/index.js";
 import { routePattern } from "../src/pao/route.js";
 
@@ -35,7 +35,7 @@ describe("ПАО: спецификация и типы", () => {
     const sha = sha256Hex(readFileSync("spec/agent-protocol.yaml"));
     expect(sha).toBe(PAO_SPEC_SHA256);
     expect(readFileSync("spec/SOURCE.md", "utf8")).toContain(sha);
-    expect(PAO_VERSION).toBe("1.1.0");
+    expect(PAO_VERSION).toBe("1.2.0");
     execFileSync(process.execPath, ["scripts/gen-pao.mjs", "--check"], { stdio: "pipe" });
   });
 
@@ -112,8 +112,9 @@ describe("ПАО: клиент против заглушки", () => {
   it.each([
     ["MANDATE_SCOPE", 409, "after_human"],
     ["MANDATE_REVOKED", 409, "never"],
-    ["UPSTREAM_UNAVAILABLE", 503, "after_fix"],
-  ] as const)("retry=%s → вызывающему без повтора", async (code, status, retry) => {
+    ["CREDENTIALS_FORBIDDEN", 422, "never"],
+    ["CREDENTIAL_INVALID", 409, "after_fix"],
+  ] as const)("%s → вызывающему без повтора", async (code, status, retry) => {
     const { client, stub } = await setup();
     stub.fail("POST /pao/v1/mandates", { code });
     const e = await rejected(client.call("POST /pao/v1/mandates", { body: REQ }));
@@ -121,15 +122,75 @@ describe("ПАО: клиент против заглушки", () => {
     expect(stub.calls).toHaveLength(1);
   });
 
-  it("429 с Retry-After: ожидание и повтор с тем же ключом; без Retry-After — вызывающему", async () => {
-    const { client, stub, sleeps } = await setup({ handlers: { "POST /pao/v1/mandates": ({ body }) => ({ body: created(body) }) } });
-    stub.fail("POST /pao/v1/mandates", { code: "RATE_LIMITED", retryAfterSec: 2 });
+  it("заглушка отвечает по x-pao-errors: HTTP-статус и retry каждого кода, Retry-After у 429 и 503 (РП16)", async () => {
+    const { client, stub } = await setup({ retryAfterSec: 7 }, { maxAttempts: 1 });
+    const codes = Object.keys(PAO_ERRORS) as ErrorCode[];
+    expect(codes).toHaveLength(18);
+    for (const code of codes) {
+      stub.fail("POST /pao/v1/mandates", { code });
+      const e = await rejected(client.call("POST /pao/v1/mandates", { body: REQ }));
+      expect([e.code, e.status, e.retry, e.body?.retry]).toEqual([code, PAO_ERRORS[code].http, PAO_ERRORS[code].retry, PAO_ERRORS[code].retry]);
+    }
+    expect(PAO_ERRORS.RATE_LIMITED).toMatchObject({ http: 429, retry: "same_key" });
+    expect(PAO_ERRORS.STATE_UNAVAILABLE).toMatchObject({ http: 503, retry: "same_key" });
+    expect(PAO_ERRORS.UPSTREAM_UNAVAILABLE).toMatchObject({ http: 503, retry: "same_key" });
+    expect(PAO_ERRORS.AGENT_KEY_REVOKED.retry).toBe("new_key");
+  });
+
+  it.each(["RATE_LIMITED", "STATE_UNAVAILABLE", "UPSTREAM_UNAVAILABLE"] as const)(
+    "%s (same_key): ожидание по Retry-After, повтор с тем же ключом, новым nonce",
+    async (code) => {
+      const { client, stub, sleeps } = await setup({ handlers: { "POST /pao/v1/mandates": ({ body }) => ({ body: created(body) }) } });
+      stub.fail("POST /pao/v1/mandates", { code, retryAfterSec: 2 });
+      await client.call("POST /pao/v1/mandates", { body: REQ });
+      expect(sleeps).toEqual([2000]);
+      expect(stub.calls.map((c) => c.status)).toEqual([PAO_ERRORS[code].http, 201]);
+      expect(stub.calls[0]!.idempotencyKey).toBe(stub.calls[1]!.idempotencyKey);
+      expect(stub.calls[0]!.nonce).not.toBe(stub.calls[1]!.nonce);
+    },
+  );
+
+  it("same_key без Retry-After — пауза по backoff; Retry-After больше потолка — вызывающему сразу", async () => {
+    const { signer } = newEd25519Signer("k-x");
+    let retryAfter: string | undefined;
+    const fake: typeof fetch = async () =>
+      new Response(JSON.stringify({ code: "RATE_LIMITED", message: "", retry: "same_key" }), { status: 429, headers: retryAfter ? { "retry-after": retryAfter } : {} });
+    const sleeps: number[] = [];
+    const client = new PaoClient({ baseUrl: "http://h", agentCode: AGENT, signer, fetch: fake, sleep: async (ms) => { sleeps.push(ms); }, maxRetryAfterSec: 30 });
+    expect((await rejected(client.call("GET /.well-known/pao-configuration", {}))).attempts).toBe(3);
+    expect(sleeps).toEqual([200, 400]);
+    retryAfter = "31";
+    const e = await rejected(client.call("GET /.well-known/pao-configuration", {}));
+    expect([e.code, e.retry, e.attempts]).toEqual(["RATE_LIMITED", "same_key", 1]);
+  });
+
+  it("retry — по x-pao-errors при совпадении кода и статуса; иначе из тела", async () => {
+    const { signer } = newEd25519Signer("k-x");
+    let reply = { status: 429, body: { code: "RATE_LIMITED", message: "", retry: "after_fix" } as Record<string, string> };
+    const fake: typeof fetch = async () => new Response(JSON.stringify(reply.body), { status: reply.status, headers: { "retry-after": "1" } });
+    const client = new PaoClient({ baseUrl: "http://h", agentCode: AGENT, signer, fetch: fake, sleep: async () => {} });
+    // Тело расходится с таблицей — верна таблица (РП16): повтор.
+    expect([(await rejected(client.call("GET /.well-known/pao-configuration", {}))).retry, (await rejected(client.call("GET /.well-known/pao-configuration", {}))).attempts])
+      .toEqual(["same_key", 3]);
+    // Код новее этой версии ПАО — как в теле.
+    reply = { status: 409, body: { code: "FUTURE_CODE", message: "", retry: "after_human" } };
+    const e = await rejected(client.call("GET /.well-known/pao-configuration", {}));
+    expect([e.retry, e.attempts]).toEqual(["after_human", 1]);
+    // Пара «код, статус» вне таблицы — как в теле.
+    reply = { status: 500, body: { code: "UPSTREAM_UNAVAILABLE", message: "", retry: "never" } };
+    expect((await rejected(client.call("GET /.well-known/pao-configuration", {}))).attempts).toBe(1);
+  });
+
+  it("503 без тела ПАО с Retry-After (прокси) — повтор с тем же ключом", async () => {
+    let first = true;
+    const proxy: typeof fetch = async (url, init) => {
+      if (first) { first = false; return new Response("busy", { status: 503, headers: { "retry-after": "3" } }); }
+      return fetch(url, init);
+    };
+    const { client, stub, sleeps } = await setup({ handlers: { "POST /pao/v1/mandates": ({ body }) => ({ body: created(body) }) } }, { fetch: proxy, idempotencyKey: () => "ik-proxy" });
     await client.call("POST /pao/v1/mandates", { body: REQ });
-    expect(sleeps).toEqual([2000]);
-    expect(stub.calls.map((c) => c.status)).toEqual([429, 201]);
-    expect(stub.calls[0]!.idempotencyKey).toBe(stub.calls[1]!.idempotencyKey);
-    stub.fail("POST /pao/v1/mandates", { code: "RATE_LIMITED" });
-    expect((await rejected(client.call("POST /pao/v1/mandates", { body: REQ }))).retry).toBe("after_fix");
+    expect(sleeps).toEqual([3000]);
+    expect(stub.calls.map((c) => [c.status, c.idempotencyKey])).toEqual([[201, "ik-proxy"]]);
   });
 
   it("baseUrl: хвостовые «/» срезаются за линейное время (CodeQL js/polynomial-redos)", async () => {
@@ -146,14 +207,14 @@ describe("ПАО: клиент против заглушки", () => {
 
   it("Retry-After: длинная плохая строка разбирается за миллисекунды, повтора нет", async () => {
     const { signer } = newEd25519Signer("k-x");
+    // Без тела ПАО повтор только по разобранному Retry-After; плохой заголовок — вызывающему, огромный — выше потолка.
     for (const header of ["1".repeat(200_000) + "x", " ".repeat(200_000) + "1a", "9".repeat(200_000)]) {
-      const fake: typeof fetch = async () =>
-        new Response(JSON.stringify({ code: "RATE_LIMITED", message: "", retry: "after_fix" }), { status: 429, headers: { "retry-after": header } });
+      const fake: typeof fetch = async () => new Response("rate limited", { status: 429, headers: { "retry-after": header } });
       const client = new PaoClient({ baseUrl: "http://h", agentCode: AGENT, signer, fetch: fake, sleep: async () => {} });
       const t0 = performance.now();
       const e = await rejected(client.call("GET /.well-known/pao-configuration", {}));
       expect(performance.now() - t0).toBeLessThan(50);
-      expect([e.code, e.attempts]).toEqual(["RATE_LIMITED", 1]);
+      expect([e.status, e.attempts]).toEqual([429, 1]);
     }
   });
 
