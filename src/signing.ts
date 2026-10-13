@@ -1,5 +1,6 @@
 import { generateKeyPairSync, sign as cSign, verify as cVerify, createPublicKey, KeyObject } from "node:crypto";
 import { createHash } from "node:crypto";
+import { isWeakEd25519 } from "./ed25519.js";
 
 /** Подпись HTTP-обращений (схема HTTP Message Signatures, упрощённый профиль).
  *  Алгоритм — атрибут ключа: ed25519 в песочнице; ГОСТ — точка расширения через интерфейс Signer. */
@@ -32,11 +33,23 @@ export function newEd25519Signer(kid: string): { signer: Signer; publicKey: stri
   return { signer: { kid, alg: "ed25519", sign: (d) => cSign(null, d, privateKey) }, publicKey: pub };
 }
 
+// DER SubjectPublicKeyInfo Ed25519 (RFC 8410): 12 байт заголовка + 32 байта точки.
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+/** Строгий разбор открытого ключа: канонический base64 (RFC 4648 §3.5), DER ровно 44 байта, точка не слабая. Иначе null. */
+function parseEd25519PublicKey(publicKey: string): KeyObject | null {
+  const der = Buffer.from(publicKey, "base64");
+  if (der.length !== 44 || der.toString("base64") !== publicKey) return null;
+  if (!der.subarray(0, 12).equals(ED25519_SPKI_PREFIX) || isWeakEd25519(der.subarray(12))) return null;
+  try { return createPublicKey({ key: der, format: "der", type: "spki" }); } catch { return null; }
+}
+
 export const ed25519Verifier: Verifier = {
   verify(alg, publicKey, data, sig) {
     if (alg !== "ed25519") return false;
-    const key: KeyObject = createPublicKey({ key: Buffer.from(publicKey, "base64"), format: "der", type: "spki" });
-    return cVerify(null, data, key, sig);
+    const key = parseEd25519PublicKey(publicKey);
+    if (!key) return false;
+    try { return cVerify(null, data, key, sig); } catch { return false; }
   },
 };
 
