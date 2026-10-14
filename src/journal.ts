@@ -99,6 +99,9 @@ export class AsyncMemoryJournalStore implements AsyncJournalStore {
 
 export type JournalVerifyResult = { ok: true } | { ok: false; brokenAt: number };
 
+/** Внешний якорь (К6 п. 9): последние seq и hash, которые потребитель хранит отдельно или получает из подписанной выписки. */
+export interface JournalAnchor { seq: number; hash: string }
+
 /** HashChainJournal над асинхронным хранилищем: те же append, verify, extract. */
 export class AsyncHashChainJournal {
   constructor(
@@ -124,16 +127,20 @@ export class AsyncHashChainJournal {
     }
   }
 
-  /** Проверка целостности: начало цепочки, непрерывный seq, ссылка на хэш предыдущей, пересчёт хэша. */
-  async verify(): Promise<JournalVerifyResult> {
+  /** Проверка целостности: начало цепочки, непрерывный seq, ссылка на хэш предыдущей, пересчёт хэша.
+   *  С якорем — ещё и запись anchor.seq существует и её hash равен якорному; рост цепочки после якоря — не ошибка.
+   *  Без якоря удалённый хвост не обнаружить (К6 п. 9). */
+  async verify(anchor?: JournalAnchor): Promise<JournalVerifyResult> {
     let prev = this.genesis;
     let seq = 0;
     for (const e of await this.store.all()) {
       const { hash, ...rest } = e;
       if (e.seq !== seq + 1 || e.prev_hash !== prev || entryHash(rest) !== hash) return { ok: false, brokenAt: e.seq };
+      if (anchor && e.seq === anchor.seq && hash !== anchor.hash) return { ok: false, brokenAt: anchor.seq };
       prev = hash;
       seq = e.seq;
     }
+    if (anchor && seq < anchor.seq) return { ok: false, brokenAt: anchor.seq };
     return { ok: true };
   }
 

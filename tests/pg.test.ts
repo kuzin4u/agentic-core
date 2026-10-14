@@ -142,6 +142,70 @@ describe.skipIf(!DATABASE_URL)("PostgreSQL: миграция журнала и �
     expect(await ja.verify()).toEqual({ ok: false, brokenAt: 1 });
   });
 
+  describe("подмена в обход триггера (К2.3)", () => {
+    const bypass = async (...sql: string[]) => {
+      await db.query("ALTER TABLE core_journal DISABLE TRIGGER USER");
+      try { for (const q of sql) await db.query(q); } finally { await db.query("ALTER TABLE core_journal ENABLE TRIGGER USER"); }
+    };
+    const chain3 = async (name: string) => {
+      const j = new AsyncHashChainJournal(new PgJournalStore(db, name), fixed);
+      for (const r of ["r1", "r2", "r3"]) await j.append("k", r, { r });
+      expect(await j.verify()).toEqual({ ok: true });
+      return j;
+    };
+
+    it("изменённая запись", async () => {
+      const j = await chain3("by-edit");
+      await bypass(`UPDATE core_journal SET payload = '{"r":"x"}' WHERE chain = 'by-edit' AND seq = 2`);
+      expect(await j.verify()).toEqual({ ok: false, brokenAt: 2 });
+    });
+
+    it("удалённая середина — ссылка следующей записи не сходится", async () => {
+      const j = await chain3("by-mid");
+      await bypass("DELETE FROM core_journal WHERE chain = 'by-mid' AND seq = 2");
+      expect(await j.verify()).toEqual({ ok: false, brokenAt: 3 });
+    });
+
+    it("разрыв seq при верных ссылках и хэшах (запись мимо журнала: 1, 2, 4)", async () => {
+      const s = new PgJournalStore(db, "by-gap");
+      let prev = s.genesis;
+      for (const seq of [1, 2, 4]) {
+        const base = { seq, at: fixed(), kind: "k", ref: `r${seq}`, parent_ref: null, payload: { seq }, prev_hash: prev };
+        const e: JournalEntry = { ...base, hash: entryHash(base) };
+        await s.append(e);
+        prev = e.hash;
+      }
+      expect(await new AsyncHashChainJournal(s).verify()).toEqual({ ok: false, brokenAt: 4 });
+    });
+
+    it("перестановка записей", async () => {
+      const j = await chain3("by-swap");
+      await bypass(
+        "UPDATE core_journal SET seq = 100 WHERE chain = 'by-swap' AND seq = 2",
+        "UPDATE core_journal SET seq = 2 WHERE chain = 'by-swap' AND seq = 3",
+        "UPDATE core_journal SET seq = 3 WHERE chain = 'by-swap' AND seq = 100",
+      );
+      expect(await j.verify()).toEqual({ ok: false, brokenAt: 2 });
+    });
+
+    it("удалённый хвост: без якоря не виден, с якорем виден", async () => {
+      const j = await chain3("by-tail");
+      const last = (await new PgJournalStore(db, "by-tail").last())!;
+      const anchor = { seq: last.seq, hash: last.hash };
+      await bypass("DELETE FROM core_journal WHERE chain = 'by-tail' AND seq = 3");
+      expect(await j.verify()).toEqual({ ok: true });
+      expect(await j.verify(anchor)).toEqual({ ok: false, brokenAt: 3 });
+    });
+
+    it("рост после якоря — verify с якорем зелёный", async () => {
+      const j = await chain3("by-grow");
+      const last = (await new PgJournalStore(db, "by-grow").last())!;
+      await j.append("k", "r4", { r: "r4" });
+      await j.append("k", "r5", { r: "r5" });
+      expect(await j.verify({ seq: last.seq, hash: last.hash })).toEqual({ ok: true });
+    });
+  });
+
   it("хэш — 64 строчных hex-символа", async () => {
     await expect(row("c", 1, H("0"), H("Z"))).rejects.toMatchObject({ code: "23514" });
   });

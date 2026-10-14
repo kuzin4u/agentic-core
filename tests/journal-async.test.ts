@@ -61,6 +61,21 @@ describe("асинхронный журнал (К6 п. 4)", () => {
     expect(await new AsyncHashChainJournal(rowsOf(GENESIS_HASH, [rows[0]!, { ...rows[1]!, payload: { r: "x" } }, rows[2]!])).verify()).toEqual({ ok: false, brokenAt: 2 });
   });
 
+  it("якорь {seq, hash}: удалённый хвост виден только с якорем; рост после якоря — не ошибка (К2.3)", async () => {
+    const s = new AsyncMemoryJournalStore();
+    const j = new AsyncHashChainJournal(s, fixed);
+    for (const r of ["r1", "r2", "r3"]) await j.append("k", r, { r });
+    const rows = await s.all();
+    const anchor = { seq: 3, hash: rows[2]!.hash };
+    expect(await j.verify(anchor)).toEqual({ ok: true });
+    const cut = new AsyncHashChainJournal(rowsOf(GENESIS_HASH, rows.slice(0, 2)));
+    expect(await cut.verify()).toEqual({ ok: true });
+    expect(await cut.verify(anchor)).toEqual({ ok: false, brokenAt: 3 });
+    expect(await j.verify({ seq: 2, hash: "f".repeat(64) })).toEqual({ ok: false, brokenAt: 2 });
+    await j.append("k", "r4", { r: "r4" });
+    expect(await j.verify(anchor)).toEqual({ ok: true });
+  });
+
   it("одновременные добавления: конфликт — повтор, цепочка без развилки (К6 п. 7)", async () => {
     const s = new AsyncMemoryJournalStore(chainGenesis("A"));
     const j = new AsyncHashChainJournal(s, fixed, 25);
