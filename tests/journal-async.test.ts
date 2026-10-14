@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
-  AsyncHashChainJournal, AsyncMemoryJournalStore, JournalAppendConflict, chainGenesis, GENESIS_HASH,
+  AsyncHashChainJournal, AsyncMemoryJournalStore, JournalAppendConflict, chainGenesis, entryHash, GENESIS_HASH,
   type AsyncJournalStore, type JournalEntry,
 } from "../src/index.js";
 
@@ -59,6 +59,18 @@ describe("асинхронный журнал (К6 п. 4)", () => {
     const rows = await s.all();
     expect(await new AsyncHashChainJournal(rowsOf(GENESIS_HASH, [rows[0]!, rows[2]!])).verify()).toEqual({ ok: false, brokenAt: 3 });
     expect(await new AsyncHashChainJournal(rowsOf(GENESIS_HASH, [rows[0]!, { ...rows[1]!, payload: { r: "x" } }, rows[2]!])).verify()).toEqual({ ok: false, brokenAt: 2 });
+  });
+
+  it("разрыв seq при верных ссылках и хэшах (1, 2, 4) — ловит только проверка seq (К2.3)", async () => {
+    const rows: JournalEntry[] = [];
+    let prev = GENESIS_HASH;
+    for (const seq of [1, 2, 4]) {
+      const base = { seq, at: fixed(), kind: "k", ref: `r${seq}`, parent_ref: null, payload: { seq }, prev_hash: prev };
+      const e = { ...base, hash: entryHash(base) };
+      rows.push(e);
+      prev = e.hash;
+    }
+    expect(await new AsyncHashChainJournal(rowsOf(GENESIS_HASH, rows)).verify()).toEqual({ ok: false, brokenAt: 4 });
   });
 
   it("якорь {seq, hash}: удалённый хвост виден только с якорем; рост после якоря — не ошибка (К2.3)", async () => {
