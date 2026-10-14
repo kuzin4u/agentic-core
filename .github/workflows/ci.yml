@@ -6,6 +6,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: core
+          POSTGRES_PASSWORD: core
+          POSTGRES_DB: core
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U core"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,7 +36,9 @@ jobs:
         run: npm audit --audit-level=high
       - name: Проверка типов
         run: npm run check
-      - name: Тесты и сценарии приёмки
-        run: npm test
+      - name: Тесты и сценарии приёмки (PostgreSQL — сервис postgres:16)
+        run: npm test -- --reporter=verbose
+        env:
+          DATABASE_URL: postgres://core:core@localhost:5432/core
       - name: Поиск ключей и реквизитов
         run: python3 .claude/hooks/scan_secrets.py .
