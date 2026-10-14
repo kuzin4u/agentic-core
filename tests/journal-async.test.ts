@@ -88,6 +88,22 @@ describe("асинхронный журнал (К6 п. 4)", () => {
     expect(await j.verify(anchor)).toEqual({ ok: true });
   });
 
+  it("хранилище вернуло строки не по порядку — verify отказывает, а не сортирует сам (К2.3г)", async () => {
+    const s = new AsyncMemoryJournalStore();
+    const j = new AsyncHashChainJournal(s, fixed);
+    for (const r of ["r1", "r2", "r3"]) await j.append("k", r, { r });
+    const [a, b, c] = await s.all();
+    expect(await new AsyncHashChainJournal(rowsOf(GENESIS_HASH, [a!, c!, b!])).verify()).toEqual({ ok: false, brokenAt: 3 });
+  });
+
+  it("якорь с seq < 1 или нецелым — ошибка, а не тихое ok (К2.3д)", async () => {
+    const j = new AsyncHashChainJournal(new AsyncMemoryJournalStore(), fixed);
+    await j.append("k", "r1", {});
+    for (const seq of [0, -1, 1.5, Number.NaN]) {
+      await expect(j.verify({ seq, hash: "0".repeat(64) })).rejects.toThrow(/JOURNAL_ANCHOR_INVALID/);
+    }
+  });
+
   it("одновременные добавления: конфликт — повтор, цепочка без развилки (К6 п. 7)", async () => {
     const s = new AsyncMemoryJournalStore(chainGenesis("A"));
     const j = new AsyncHashChainJournal(s, fixed, 25);

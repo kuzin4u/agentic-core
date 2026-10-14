@@ -37,6 +37,7 @@ export class PgJournalStore implements AsyncJournalStore {
     }
   }
 
+  /** ORDER BY seq обязателен: verify() проверяет записи в порядке выдачи и не сортирует сам (ревью #19, К2.3г). */
   async all(): Promise<readonly JournalEntry[]> {
     const r = await this.client.query<Row>(`SELECT ${COLS} FROM core_journal WHERE chain = $1 ORDER BY seq`, [this.chain]);
     return r.rows.map(toEntry);

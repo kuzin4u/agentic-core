@@ -77,6 +77,7 @@ export interface AsyncJournalStore {
   last(): Promise<JournalEntry | undefined>;
   /** Запись с занятым seq или prev_hash — JournalAppendConflict. */
   append(e: JournalEntry): Promise<void>;
+  /** Все записи по возрастанию seq: verify() полагается на порядок и не сортирует сам. */
   all(): Promise<readonly JournalEntry[]>;
 }
 
@@ -131,6 +132,7 @@ export class AsyncHashChainJournal {
    *  С якорем — ещё и запись anchor.seq существует и её hash равен якорному; рост цепочки после якоря — не ошибка.
    *  Без якоря удалённый хвост не обнаружить (К6 п. 9). */
   async verify(anchor?: JournalAnchor): Promise<JournalVerifyResult> {
+    if (anchor && !(Number.isInteger(anchor.seq) && anchor.seq >= 1)) throw new RangeError(`JOURNAL_ANCHOR_INVALID: seq ${anchor.seq}, нужен целый seq ≥ 1`);
     let prev = this.genesis;
     let seq = 0;
     for (const e of await this.store.all()) {

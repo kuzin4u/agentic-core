@@ -51,6 +51,13 @@ describe("applyMigrations без базы", () => {
   });
 });
 
+// Страж (К2.4): в CI PG-тесты не пропускаются молча — без DATABASE_URL падает этот тест. Локально без базы — пропуск.
+describe("страж PG-тестов", () => {
+  it.runIf(process.env.CI)("в CI задан DATABASE_URL — PG-тесты выполняются, а не пропускаются", () => {
+    expect(DATABASE_URL, "в CI нет DATABASE_URL: PG-тесты были бы пропущены").toBeTruthy();
+  });
+});
+
 describe.skipIf(!DATABASE_URL)("PostgreSQL: миграция журнала и запрет изменений", () => {
   const schema = `t_${process.pid}_${Date.now()}`;
   let admin: pg.Pool;
