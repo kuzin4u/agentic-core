@@ -64,3 +64,85 @@ export class HashChainJournal {
     return out;
   }
 }
+
+/** Начало именованной цепочки (К6 п. 8): первая запись привязана к имени, строки чужой цепочки под этим именем не проходят verify(). */
+export function chainGenesis(chain: string): string {
+  return sha256Hex("core_journal:" + chain);
+}
+
+/** Хранилище с асинхронным доступом (К6 п. 4): PostgreSQL и другие внешние базы. */
+export interface AsyncJournalStore {
+  /** prev_hash первой записи; по умолчанию GENESIS_HASH. */
+  readonly genesis?: string;
+  last(): Promise<JournalEntry | undefined>;
+  /** Запись с занятым seq или prev_hash — JournalAppendConflict. */
+  append(e: JournalEntry): Promise<void>;
+  all(): Promise<readonly JournalEntry[]>;
+}
+
+/** Конец цепочки занят другой записью: одновременное добавление (К6 п. 7). */
+export class JournalAppendConflict extends Error {
+  constructor(public readonly seq: number) { super(`JOURNAL_APPEND_CONFLICT: seq ${seq}`); }
+}
+
+export class AsyncMemoryJournalStore implements AsyncJournalStore {
+  private rows: JournalEntry[] = [];
+  constructor(readonly genesis: string = GENESIS_HASH) {}
+  async last() { return this.rows[this.rows.length - 1]; }
+  async append(e: JournalEntry) {
+    const tail = this.rows[this.rows.length - 1];
+    if (e.seq !== (tail ? tail.seq + 1 : 1) || e.prev_hash !== (tail ? tail.hash : this.genesis)) throw new JournalAppendConflict(e.seq);
+    this.rows.push(Object.freeze({ ...e }) as JournalEntry);
+  }
+  async all() { return this.rows; }
+}
+
+export type JournalVerifyResult = { ok: true } | { ok: false; brokenAt: number };
+
+/** HashChainJournal над асинхронным хранилищем: те же append, verify, extract. */
+export class AsyncHashChainJournal {
+  constructor(
+    private store: AsyncJournalStore,
+    private now: () => string = () => new Date().toISOString(),
+    private maxAttempts = 5,
+  ) {}
+
+  private get genesis() { return this.store.genesis ?? GENESIS_HASH; }
+
+  /** При одновременном добавлении перечитывает конец цепочки и повторяет; сверх maxAttempts — JournalAppendConflict вызывающему. */
+  async append<T>(kind: string, ref: string, payload: T, parent_ref: string | null = null): Promise<JournalEntry<T>> {
+    for (let attempt = 1; ; attempt++) {
+      const prev = await this.store.last();
+      const base = { seq: prev ? prev.seq + 1 : 1, at: this.now(), kind, ref, parent_ref, payload, prev_hash: prev ? prev.hash : this.genesis };
+      const e = { ...base, hash: entryHash(base) } as JournalEntry<T>;
+      try {
+        await this.store.append(e);
+        return e;
+      } catch (err) {
+        if (!(err instanceof JournalAppendConflict) || attempt >= this.maxAttempts) throw err;
+      }
+    }
+  }
+
+  /** Проверка целостности: начало цепочки, непрерывный seq, ссылка на хэш предыдущей, пересчёт хэша. */
+  async verify(): Promise<JournalVerifyResult> {
+    let prev = this.genesis;
+    let seq = 0;
+    for (const e of await this.store.all()) {
+      const { hash, ...rest } = e;
+      if (e.seq !== seq + 1 || e.prev_hash !== prev || entryHash(rest) !== hash) return { ok: false, brokenAt: e.seq };
+      prev = hash;
+      seq = e.seq;
+    }
+    return { ok: true };
+  }
+
+  async extract(ref: string): Promise<JournalEntry[]> {
+    const refs = new Set([ref]);
+    const out: JournalEntry[] = [];
+    for (const e of await this.store.all()) {
+      if (refs.has(e.ref) || (e.parent_ref && refs.has(e.parent_ref))) { refs.add(e.ref); out.push(e); }
+    }
+    return out;
+  }
+}

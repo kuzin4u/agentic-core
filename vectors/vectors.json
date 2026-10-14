@@ -63,6 +63,28 @@
       "hash": "b20b92523c79afdb021194851ba302228202aee6b6f996cd644c3aaab2ea299d"
     }
   ],
+  "journal_chain_genesis": [
+    {
+      "chain": "mandates:client-42",
+      "chain_utf8_hex": "6d616e64617465733a636c69656e742d3432",
+      "genesis": "655a185e8f57a59dabb8b735fe9b5f7bf4ef117d5977dc7325a4c5999228d75f"
+    },
+    {
+      "chain": "журнал-сделок",
+      "chain_utf8_hex": "d0b6d183d180d0bdd0b0d0bb2dd181d0b4d0b5d0bbd0bed0ba",
+      "genesis": "97bdbd41c03e0a8d612399cfdb8888a979be4d1bf03201c2531dca3e50b8d8ba"
+    },
+    {
+      "chain": "й",
+      "chain_utf8_hex": "d0b9",
+      "genesis": "edd945d27bc1fd8925778447a7bdd0806fd73f1ea436c29fbb2f5969a0a237ee"
+    },
+    {
+      "chain": "й",
+      "chain_utf8_hex": "d0b8cc86",
+      "genesis": "131ec6e8af85d2b1c22f68abf2426aea1c3604b698eccf8af75dbf72f8dfb2ff"
+    }
+  ],
   "holds": [
     {
       "op": [

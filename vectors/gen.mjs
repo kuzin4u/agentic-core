@@ -13,6 +13,11 @@ const e1b = { seq: 1, at, kind: "mandate", ref: "MND-1", parent_ref: null, paylo
 const h1 = sha(canon(e1b));
 const e2b = { seq: 2, at, kind: "mandate", ref: "MND-2", parent_ref: "MND-1", payload: { amount_limit: 189000 }, prev_hash: h1 };
 const journal = [{ ...e1b, hash: h1 }, { ...e2b, hash: sha(canon(e2b)) }];
+// Начало именованной цепочки (К6 п. 8): sha256("core_journal:" + chain), UTF-8 без нормализации Unicode.
+// «й» одним кодом (NFC) и «и» + краткая (NFD) дают разные начала — правило закреплено вектором.
+const journal_chain_genesis = ["mandates:client-42", "журнал-сделок", "\u0439", "\u0438\u0306"].map((chain) => ({
+  chain, chain_utf8_hex: Buffer.from(chain, "utf8").toString("hex"), genesis: sha("core_journal:" + chain),
+}));
 const holds = [
   { op: ["open", "MND-1", 500000], available: 500000 },
   { op: ["reserve", "MND-1", 189000, "OP-1"], available: 311000 },
@@ -25,5 +30,5 @@ const holds = [
   { op: ["release", "OP-4"], available: 350000 },
   { op: ["commit", "OP-4", 1000], error: "BAD_STATE", available: 350000 },
 ];
-writeFileSync(new URL("./vectors.json", import.meta.url), JSON.stringify({ version: 1, canonical, journal, holds }, null, 2));
+writeFileSync(new URL("./vectors.json", import.meta.url), JSON.stringify({ version: 1, canonical, journal, journal_chain_genesis, holds }, null, 2));
 console.log("vectors written");
