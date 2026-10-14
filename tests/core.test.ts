@@ -211,8 +211,3 @@ describe("деньги", () => {
     expect(parts.reduce((a, b) => a + b, 0)).toBe(100001);
   });
 });
-
-// ВРЕМЕННО (П3а): подставная поломка «падение только на Node 20» — проверка итоговой test; отменяется git revert.
-it("ВРЕМЕННО: поломка только на Node 20", () => {
-  expect(process.versions.node.startsWith("20."), "подставная поломка П3а").toBe(false);
-});
