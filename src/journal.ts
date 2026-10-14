@@ -135,7 +135,7 @@ export class AsyncHashChainJournal {
     let seq = 0;
     for (const e of await this.store.all()) {
       const { hash, ...rest } = e;
-      if (e.prev_hash !== prev || entryHash(rest) !== hash) return { ok: false, brokenAt: e.seq };
+      if (e.seq !== seq + 1 || e.prev_hash !== prev || entryHash(rest) !== hash) return { ok: false, brokenAt: e.seq };
       if (anchor && e.seq === anchor.seq && hash !== anchor.hash) return { ok: false, brokenAt: anchor.seq };
       prev = hash;
       seq = e.seq;
