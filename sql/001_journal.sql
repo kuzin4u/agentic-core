@@ -22,7 +22,7 @@ $$;
 
 -- UPDATE и DELETE — строковым триггером.
 CREATE TRIGGER core_journal_no_update_delete
-  BEFORE DELETE ON core_journal
+  BEFORE UPDATE OR DELETE ON core_journal
   FOR EACH ROW EXECUTE FUNCTION core_journal_append_only();
 
 -- TRUNCATE — триггером уровня оператора: строкового для него не бывает.
