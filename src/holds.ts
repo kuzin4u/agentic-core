@@ -1,23 +1,33 @@
+import { isCurrencyCode, type CurrencyCode, type Money } from "./money.js";
+
 /** Учёт удержаний: резерв → закрепление → освобождение.
  *  Один механизм для бюджета мандата (Платформа ПС, П3) и для эскроу (НСВР, BankAdapter).
- *  Инварианты: доступно = лимит − закреплено − зарезервировано ≥ 0; операции атомарны и идемпотентны по ref. */
+ *  Инварианты: доступно = лимит − закреплено − зарезервировано ≥ 0; операции атомарны и идемпотентны по ref.
+ *  Суммы (К9) — целые минимальные единицы; счёт и его удержания — в одной валюте. */
 export type HoldState = "RESERVED" | "COMMITTED" | "RELEASED" | "PARTIAL";
 
 export interface Hold {
   id: string;
   account: string;
   ref: string;
-  amount: number;      // зарезервировано изначально, копейки
+  currency: CurrencyCode;
+  amount: number;      // зарезервировано изначально, минимальные единицы
   committed: number;   // закреплено
   released: number;    // освобождено
   state: HoldState;
   expires_at: number | null; // epoch ms
 }
 
-export interface Account { id: string; limit: number; committed: number; reserved: number; version: number; }
+export interface Account { id: string; currency: CurrencyCode; limit: number; committed: number; reserved: number; version: number; }
 
 export class HoldError extends Error {
-  constructor(public code: "INSUFFICIENT" | "UNKNOWN_ACCOUNT" | "UNKNOWN_HOLD" | "BAD_AMOUNT" | "BAD_STATE" | "REF_CONFLICT", msg?: string) { super(msg ?? code); }
+  constructor(public code: "INSUFFICIENT" | "UNKNOWN_ACCOUNT" | "UNKNOWN_HOLD" | "BAD_AMOUNT" | "BAD_STATE" | "REF_CONFLICT" | "CURRENCY_MISMATCH" | "ACCOUNT_CONFLICT", msg?: string) { super(msg ?? code); }
+}
+
+/** Сумма из Money: безопасное целое ≥ min, иначе BAD_AMOUNT. */
+function units(m: Money, min: number): number {
+  if (!m || !Number.isSafeInteger(m.amount) || m.amount < min) throw new HoldError("BAD_AMOUNT");
+  return m.amount;
 }
 
 export class HoldLedger {
@@ -26,43 +36,53 @@ export class HoldLedger {
   private byRef = new Map<string, string>();
   private seq = 0;
 
-  openAccount(id: string, limit: number): Account {
-    if (!Number.isInteger(limit) || limit < 0) throw new HoldError("BAD_AMOUNT");
-    const a = { id, limit, committed: 0, reserved: 0, version: 0 };
+  /** Открытие счёта. Повтор с тем же лимитом и валютой — прежний счёт без изменений; иначе ACCOUNT_CONFLICT (К9 п. 6). */
+  openAccount(id: string, limit: Money): Account {
+    const n = units(limit, 0);
+    if (!isCurrencyCode(limit.currency)) throw new HoldError("BAD_AMOUNT");
+    const prev = this.accounts.get(id);
+    if (prev) {
+      if (prev.limit !== n || prev.currency !== limit.currency) throw new HoldError("ACCOUNT_CONFLICT");
+      return { ...prev };
+    }
+    const a = { id, currency: limit.currency, limit: n, committed: 0, reserved: 0, version: 0 };
     this.accounts.set(id, a);
     return { ...a };
   }
 
-  available(id: string): number {
+  available(id: string): Money {
     const a = this.acc(id);
-    return a.limit - a.committed - a.reserved;
+    return { amount: a.limit - a.committed - a.reserved, currency: a.currency };
   }
 
   account(id: string): Account { return { ...this.acc(id) }; }
 
-  /** Резерв. Повтор с тем же ref и той же суммой возвращает прежний резерв (идемпотентность). */
-  reserve(account: string, amount: number, ref: string, expires_at: number | null = null): Hold {
-    if (!Number.isInteger(amount) || amount <= 0) throw new HoldError("BAD_AMOUNT");
+  /** Резерв. Повтор с тем же ref, суммой и валютой возвращает прежний резерв (идемпотентность). */
+  reserve(account: string, money: Money, ref: string, expires_at: number | null = null): Hold {
+    const amount = units(money, 1);
     const existing = this.byRef.get(ref);
     if (existing) {
       const h = this.holds.get(existing)!;
-      if (h.account !== account || h.amount !== amount) throw new HoldError("REF_CONFLICT");
+      if (h.account !== account || h.amount !== amount || h.currency !== money.currency) throw new HoldError("REF_CONFLICT");
       return { ...h };
     }
     const a = this.acc(account);
+    if (money.currency !== a.currency) throw new HoldError("CURRENCY_MISMATCH");
     if (a.limit - a.committed - a.reserved < amount) throw new HoldError("INSUFFICIENT");
     a.reserved += amount; a.version++;
-    const h: Hold = { id: `HLD-${++this.seq}`, account, ref, amount, committed: 0, released: 0, state: "RESERVED", expires_at };
+    const h: Hold = { id: `HLD-${++this.seq}`, account, ref, currency: a.currency, amount, committed: 0, released: 0, state: "RESERVED", expires_at };
     this.holds.set(h.id, h); this.byRef.set(ref, h.id);
     return { ...h };
   }
 
   /** Закрепление (клиринг / раскрытие эскроу). Частичное допустимо; остаток можно освободить releaseRest. */
-  commit(holdId: string, amount: number, releaseRest = false): Hold {
+  commit(holdId: string, money: Money, releaseRest = false): Hold {
     const h = this.hold(holdId);
     const open = h.amount - h.committed - h.released;
     if (open === 0) throw new HoldError("BAD_STATE");
-    if (!Number.isInteger(amount) || amount <= 0 || amount > open) throw new HoldError("BAD_AMOUNT");
+    const amount = units(money, 1);
+    if (money.currency !== h.currency) throw new HoldError("CURRENCY_MISMATCH");
+    if (amount > open) throw new HoldError("BAD_AMOUNT");
     const a = this.acc(h.account);
     a.reserved -= amount; a.committed += amount; h.committed += amount;
     if (releaseRest && open - amount > 0) { const rest = open - amount; a.reserved -= rest; h.released += rest; }

@@ -480,86 +480,244 @@
       "op": [
         "open",
         "MND-1",
-        500000
+        {
+          "amount": 500000,
+          "currency": "RUB"
+        }
       ],
-      "available": 500000
+      "available": {
+        "amount": 500000,
+        "currency": "RUB"
+      }
     },
     {
       "op": [
         "reserve",
         "MND-1",
-        189000,
+        {
+          "amount": 189000,
+          "currency": "RUB"
+        },
         "OP-1"
       ],
-      "available": 311000
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
     },
     {
       "op": [
         "reserve",
         "MND-1",
-        340000,
+        {
+          "amount": 340000,
+          "currency": "RUB"
+        },
         "OP-2"
       ],
       "error": "INSUFFICIENT",
-      "available": 311000
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": [
+        "reserve",
+        "MND-1",
+        {
+          "amount": 1000,
+          "currency": "USD"
+        },
+        "OP-USD"
+      ],
+      "error": "CURRENCY_MISMATCH",
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": [
+        "reserve",
+        "MND-1",
+        {
+          "amount": 189000,
+          "currency": "USD"
+        },
+        "OP-1"
+      ],
+      "error": "REF_CONFLICT",
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": [
+        "reserve",
+        "MND-1",
+        {
+          "amount": 189000,
+          "currency": "RUB"
+        },
+        "OP-1"
+      ],
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": [
+        "open",
+        "MND-1",
+        {
+          "amount": 500000,
+          "currency": "RUB"
+        }
+      ],
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": [
+        "open",
+        "MND-1",
+        {
+          "amount": 600000,
+          "currency": "RUB"
+        }
+      ],
+      "error": "ACCOUNT_CONFLICT",
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": [
+        "open",
+        "MND-1",
+        {
+          "amount": 500000,
+          "currency": "USD"
+        }
+      ],
+      "error": "ACCOUNT_CONFLICT",
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
     },
     {
       "op": [
         "commit",
         "OP-1",
-        150000,
+        {
+          "amount": 150000,
+          "currency": "USD"
+        },
         true
       ],
-      "available": 350000
+      "error": "CURRENCY_MISMATCH",
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": [
+        "commit",
+        "OP-1",
+        {
+          "amount": 150000,
+          "currency": "RUB"
+        },
+        true
+      ],
+      "available": {
+        "amount": 350000,
+        "currency": "RUB"
+      }
     },
     {
       "op": [
         "reserve",
         "MND-1",
-        100000,
+        {
+          "amount": 100000,
+          "currency": "RUB"
+        },
         "OP-3",
         1000
       ],
-      "available": 250000
+      "available": {
+        "amount": 250000,
+        "currency": "RUB"
+      }
     },
     {
       "op": [
         "expire",
         2000
       ],
-      "available": 350000
+      "available": {
+        "amount": 350000,
+        "currency": "RUB"
+      }
     },
     {
       "op": [
         "reserve",
         "MND-1",
-        50000,
+        {
+          "amount": 50000,
+          "currency": "RUB"
+        },
         "OP-4"
       ],
-      "available": 300000
+      "available": {
+        "amount": 300000,
+        "currency": "RUB"
+      }
     },
     {
       "op": [
         "release",
         "OP-4"
       ],
-      "available": 350000
+      "available": {
+        "amount": 350000,
+        "currency": "RUB"
+      }
     },
     {
       "op": [
         "release",
         "OP-4"
       ],
-      "available": 350000
+      "available": {
+        "amount": 350000,
+        "currency": "RUB"
+      }
     },
     {
       "op": [
         "commit",
         "OP-4",
-        1000
+        {
+          "amount": 1000,
+          "currency": "RUB"
+        }
       ],
       "error": "BAD_STATE",
-      "available": 350000
+      "available": {
+        "amount": 350000,
+        "currency": "RUB"
+      }
     }
   ]
 }

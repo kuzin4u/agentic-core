@@ -50,17 +50,26 @@ const money = [
     [m(M, "USDC"), [3, 1]], [m(10, "RUB"), [0, 0]], [m(10, "RUB"), [0.5, 0.5]], [m(10, "RUB"), []]]
     .map((args) => ({ op: "split", args, ...vSplit(...args) })),
 ];
+// Удержания (К9 пп. 5–6): суммы с валютой; available — Money.
+const R = (n) => m(n, "RUB");
 const holds = [
-  { op: ["open", "MND-1", 500000], available: 500000 },
-  { op: ["reserve", "MND-1", 189000, "OP-1"], available: 311000 },
-  { op: ["reserve", "MND-1", 340000, "OP-2"], error: "INSUFFICIENT", available: 311000 },
-  { op: ["commit", "OP-1", 150000, true], available: 350000 },
-  { op: ["reserve", "MND-1", 100000, "OP-3", 1000], available: 250000 },
-  { op: ["expire", 2000], available: 350000 },
-  { op: ["reserve", "MND-1", 50000, "OP-4"], available: 300000 },
-  { op: ["release", "OP-4"], available: 350000 },
-  { op: ["release", "OP-4"], available: 350000 },
-  { op: ["commit", "OP-4", 1000], error: "BAD_STATE", available: 350000 },
+  { op: ["open", "MND-1", R(500000)], available: R(500000) },
+  { op: ["reserve", "MND-1", R(189000), "OP-1"], available: R(311000) },
+  { op: ["reserve", "MND-1", R(340000), "OP-2"], error: "INSUFFICIENT", available: R(311000) },
+  { op: ["reserve", "MND-1", m(1000, "USD"), "OP-USD"], error: "CURRENCY_MISMATCH", available: R(311000) },
+  { op: ["reserve", "MND-1", m(189000, "USD"), "OP-1"], error: "REF_CONFLICT", available: R(311000) },
+  { op: ["reserve", "MND-1", R(189000), "OP-1"], available: R(311000) },
+  { op: ["open", "MND-1", R(500000)], available: R(311000) },
+  { op: ["open", "MND-1", R(600000)], error: "ACCOUNT_CONFLICT", available: R(311000) },
+  { op: ["open", "MND-1", m(500000, "USD")], error: "ACCOUNT_CONFLICT", available: R(311000) },
+  { op: ["commit", "OP-1", m(150000, "USD"), true], error: "CURRENCY_MISMATCH", available: R(311000) },
+  { op: ["commit", "OP-1", R(150000), true], available: R(350000) },
+  { op: ["reserve", "MND-1", R(100000), "OP-3", 1000], available: R(250000) },
+  { op: ["expire", 2000], available: R(350000) },
+  { op: ["reserve", "MND-1", R(50000), "OP-4"], available: R(300000) },
+  { op: ["release", "OP-4"], available: R(350000) },
+  { op: ["release", "OP-4"], available: R(350000) },
+  { op: ["commit", "OP-4", R(1000)], error: "BAD_STATE", available: R(350000) },
 ];
 const out = JSON.stringify({ version: 2, canonical, journal, journal_chain_genesis, money, holds }, null, 2);
 // Число 15–19 цифр, проходящее проверку Луна, сканер ключей и реквизитов примет за номер карты — такие векторы не пишем.
