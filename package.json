@@ -22,6 +22,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "prepare": "tsc -p tsconfig.build.json",
+    "pretest": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "check": "tsc --noEmit",
     "vectors": "node vectors/gen.mjs",
