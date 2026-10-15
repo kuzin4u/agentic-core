@@ -18,6 +18,38 @@ const journal = [{ ...e1b, hash: h1 }, { ...e2b, hash: sha(canon(e2b)) }];
 const journal_chain_genesis = ["mandates:client-42", "журнал-сделок", "\u0439", "\u0438\u0306"].map((chain) => ({
   chain, chain_utf8_hex: Buffer.from(chain, "utf8").toString("hex"), genesis: sha("core_journal:" + chain),
 }));
+// Суммы (К9): целые минимальные единицы + код валюты; ожидания считаются здесь отдельно от src, через BigInt.
+const M = Number.MAX_SAFE_INTEGER;
+const CUR = /^[A-Z][A-Z0-9]{2,11}$/;
+const m = (amount, currency) => ({ amount, currency });
+const valid = (x) => Number.isSafeInteger(x.amount) && x.amount >= 0 && CUR.test(x.currency);
+const err = (x) => !Number.isSafeInteger(x.amount) || x.amount < 0 ? "BAD_AMOUNT" : "BAD_CURRENCY";
+const vMoney = (a) => valid(a) ? { result: a } : { error: err(a) };
+const vAdd = (a, b) => {
+  for (const x of [a, b]) if (!valid(x)) return { error: err(x) };
+  if (a.currency !== b.currency) return { error: "CURRENCY_MISMATCH" };
+  const s = a.amount + b.amount;
+  return Number.isSafeInteger(s) ? { result: m(s, a.currency) } : { error: "BAD_AMOUNT" };
+};
+const vSplit = (t, w) => {
+  if (!valid(t)) return { error: err(t) };
+  if (w.length === 0 || !w.every((x) => Number.isSafeInteger(x) && x >= 0)) return { error: "BAD_WEIGHTS" };
+  const sum = w.reduce((a, x) => a + BigInt(x), 0n);
+  if (sum === 0n) return { error: "BAD_WEIGHTS" };
+  const parts = w.map((x) => (BigInt(t.amount) * BigInt(x)) / sum);
+  let last = w.length - 1; while (w[last] === 0) last--;
+  parts[last] += BigInt(t.amount) - parts.reduce((a, b) => a + b, 0n);
+  return { result: parts.map((p) => m(Number(p), t.currency)) };
+};
+const money = [
+  ...[m(189000, "RUB"), m(1500, "JPY"), m(12345, "KWD"), m(2500000, "USDC"), m(0, "RUB"), m(M, "USDC"),
+    m(M + 1, "RUB"), m(-1, "RUB"), m(1.5, "RUB"), m(1, "rub"), m(1, "RU"), m(1, "1AB")].map((a) => ({ op: "money", args: [a], ...vMoney(a) })),
+  ...[[m(150, "JPY"), m(50, "JPY")], [m(M - 2, "USDC"), m(2, "USDC")], [m(M, "RUB"), m(1, "RUB")], [m(100, "RUB"), m(100, "USD")],
+    [m(1, "KWD"), m(1, "kwd")]].map((args) => ({ op: "add", args, ...vAdd(...args) })),
+  ...[[m(100001, "RUB"), [1, 1, 1]], [m(5, "RUB"), [1, 1, 0]], [m(7, "KWD"), [0, 3, 0, 0]], [m(1000000, "USDC"), [2500, 7500]],
+    [m(M, "USDC"), [3, 1]], [m(10, "RUB"), [0, 0]], [m(10, "RUB"), [0.5, 0.5]], [m(10, "RUB"), []]]
+    .map((args) => ({ op: "split", args, ...vSplit(...args) })),
+];
 const holds = [
   { op: ["open", "MND-1", 500000], available: 500000 },
   { op: ["reserve", "MND-1", 189000, "OP-1"], available: 311000 },
@@ -30,5 +62,9 @@ const holds = [
   { op: ["release", "OP-4"], available: 350000 },
   { op: ["commit", "OP-4", 1000], error: "BAD_STATE", available: 350000 },
 ];
-writeFileSync(new URL("./vectors.json", import.meta.url), JSON.stringify({ version: 1, canonical, journal, journal_chain_genesis, holds }, null, 2));
+const out = JSON.stringify({ version: 2, canonical, journal, journal_chain_genesis, money, holds }, null, 2);
+// Число 15–19 цифр, проходящее проверку Луна, сканер ключей и реквизитов примет за номер карты — такие векторы не пишем.
+const luhn = (s) => [...s].reverse().reduce((a, c, i) => { let d = +c; if (i % 2) { d *= 2; if (d > 9) d -= 9; } return a + d; }, 0) % 10 === 0;
+for (const n of out.match(/\d{15,19}/g) ?? []) if (new Set(n).size > 1 && luhn(n)) throw new Error(`число ${n.length} цифр проходит проверку Луна — замените вектор`);
+writeFileSync(new URL("./vectors.json", import.meta.url), out);
 console.log("vectors written");

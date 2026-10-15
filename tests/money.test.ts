@@ -1,5 +1,6 @@
 // money по К9: сумма — целые минимальные единицы и код валюты; операции в одной валюте.
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { money, addMoney, splitMoney, assertMinor, isCurrencyCode, MoneyError, type Money } from "../src/index.js";
 
 const MAX = Number.MAX_SAFE_INTEGER;
@@ -50,4 +51,16 @@ describe("money: splitMoney", () => {
     for (const w of [[], [0, 0], [1, -1], [0.5, 0.5], [NaN], [MAX + 1]]) expect(code(() => splitMoney(money(10, "RUB"), w)), String(w)).toBe("BAD_WEIGHTS");
     expect(code(() => splitMoney({ amount: -1, currency: "RUB" }, [1]))).toBe("BAD_AMOUNT");
   });
+});
+
+describe("money: векторы (К9 п. 7)", () => {
+  const V = JSON.parse(readFileSync("vectors/vectors.json", "utf8"));
+  const run = (op: string, args: any[]) =>
+    op === "money" ? money(args[0].amount, args[0].currency) : op === "add" ? addMoney(args[0], args[1]) : splitMoney(args[0], args[1]);
+  for (const v of V.money as { op: string; args: any[]; result?: unknown; error?: string }[]) {
+    it(`${v.op} ${JSON.stringify(v.args)}`, () => {
+      if (v.error) expect(code(() => run(v.op, v.args))).toBe(v.error);
+      else expect(run(v.op, v.args)).toEqual(v.result);
+    });
+  }
 });

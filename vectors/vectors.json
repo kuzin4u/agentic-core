@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "canonical": [
     {
       "input": {
@@ -83,6 +83,396 @@
       "chain": "й",
       "chain_utf8_hex": "d0b8cc86",
       "genesis": "131ec6e8af85d2b1c22f68abf2426aea1c3604b698eccf8af75dbf72f8dfb2ff"
+    }
+  ],
+  "money": [
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 189000,
+          "currency": "RUB"
+        }
+      ],
+      "result": {
+        "amount": 189000,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 1500,
+          "currency": "JPY"
+        }
+      ],
+      "result": {
+        "amount": 1500,
+        "currency": "JPY"
+      }
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 12345,
+          "currency": "KWD"
+        }
+      ],
+      "result": {
+        "amount": 12345,
+        "currency": "KWD"
+      }
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 2500000,
+          "currency": "USDC"
+        }
+      ],
+      "result": {
+        "amount": 2500000,
+        "currency": "USDC"
+      }
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 0,
+          "currency": "RUB"
+        }
+      ],
+      "result": {
+        "amount": 0,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 9007199254740991,
+          "currency": "USDC"
+        }
+      ],
+      "result": {
+        "amount": 9007199254740991,
+        "currency": "USDC"
+      }
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 9007199254740992,
+          "currency": "RUB"
+        }
+      ],
+      "error": "BAD_AMOUNT"
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": -1,
+          "currency": "RUB"
+        }
+      ],
+      "error": "BAD_AMOUNT"
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 1.5,
+          "currency": "RUB"
+        }
+      ],
+      "error": "BAD_AMOUNT"
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 1,
+          "currency": "rub"
+        }
+      ],
+      "error": "BAD_CURRENCY"
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 1,
+          "currency": "RU"
+        }
+      ],
+      "error": "BAD_CURRENCY"
+    },
+    {
+      "op": "money",
+      "args": [
+        {
+          "amount": 1,
+          "currency": "1AB"
+        }
+      ],
+      "error": "BAD_CURRENCY"
+    },
+    {
+      "op": "add",
+      "args": [
+        {
+          "amount": 150,
+          "currency": "JPY"
+        },
+        {
+          "amount": 50,
+          "currency": "JPY"
+        }
+      ],
+      "result": {
+        "amount": 200,
+        "currency": "JPY"
+      }
+    },
+    {
+      "op": "add",
+      "args": [
+        {
+          "amount": 9007199254740989,
+          "currency": "USDC"
+        },
+        {
+          "amount": 2,
+          "currency": "USDC"
+        }
+      ],
+      "result": {
+        "amount": 9007199254740991,
+        "currency": "USDC"
+      }
+    },
+    {
+      "op": "add",
+      "args": [
+        {
+          "amount": 9007199254740991,
+          "currency": "RUB"
+        },
+        {
+          "amount": 1,
+          "currency": "RUB"
+        }
+      ],
+      "error": "BAD_AMOUNT"
+    },
+    {
+      "op": "add",
+      "args": [
+        {
+          "amount": 100,
+          "currency": "RUB"
+        },
+        {
+          "amount": 100,
+          "currency": "USD"
+        }
+      ],
+      "error": "CURRENCY_MISMATCH"
+    },
+    {
+      "op": "add",
+      "args": [
+        {
+          "amount": 1,
+          "currency": "KWD"
+        },
+        {
+          "amount": 1,
+          "currency": "kwd"
+        }
+      ],
+      "error": "BAD_CURRENCY"
+    },
+    {
+      "op": "split",
+      "args": [
+        {
+          "amount": 100001,
+          "currency": "RUB"
+        },
+        [
+          1,
+          1,
+          1
+        ]
+      ],
+      "result": [
+        {
+          "amount": 33333,
+          "currency": "RUB"
+        },
+        {
+          "amount": 33333,
+          "currency": "RUB"
+        },
+        {
+          "amount": 33335,
+          "currency": "RUB"
+        }
+      ]
+    },
+    {
+      "op": "split",
+      "args": [
+        {
+          "amount": 5,
+          "currency": "RUB"
+        },
+        [
+          1,
+          1,
+          0
+        ]
+      ],
+      "result": [
+        {
+          "amount": 2,
+          "currency": "RUB"
+        },
+        {
+          "amount": 3,
+          "currency": "RUB"
+        },
+        {
+          "amount": 0,
+          "currency": "RUB"
+        }
+      ]
+    },
+    {
+      "op": "split",
+      "args": [
+        {
+          "amount": 7,
+          "currency": "KWD"
+        },
+        [
+          0,
+          3,
+          0,
+          0
+        ]
+      ],
+      "result": [
+        {
+          "amount": 0,
+          "currency": "KWD"
+        },
+        {
+          "amount": 7,
+          "currency": "KWD"
+        },
+        {
+          "amount": 0,
+          "currency": "KWD"
+        },
+        {
+          "amount": 0,
+          "currency": "KWD"
+        }
+      ]
+    },
+    {
+      "op": "split",
+      "args": [
+        {
+          "amount": 1000000,
+          "currency": "USDC"
+        },
+        [
+          2500,
+          7500
+        ]
+      ],
+      "result": [
+        {
+          "amount": 250000,
+          "currency": "USDC"
+        },
+        {
+          "amount": 750000,
+          "currency": "USDC"
+        }
+      ]
+    },
+    {
+      "op": "split",
+      "args": [
+        {
+          "amount": 9007199254740991,
+          "currency": "USDC"
+        },
+        [
+          3,
+          1
+        ]
+      ],
+      "result": [
+        {
+          "amount": 6755399441055743,
+          "currency": "USDC"
+        },
+        {
+          "amount": 2251799813685248,
+          "currency": "USDC"
+        }
+      ]
+    },
+    {
+      "op": "split",
+      "args": [
+        {
+          "amount": 10,
+          "currency": "RUB"
+        },
+        [
+          0,
+          0
+        ]
+      ],
+      "error": "BAD_WEIGHTS"
+    },
+    {
+      "op": "split",
+      "args": [
+        {
+          "amount": 10,
+          "currency": "RUB"
+        },
+        [
+          0.5,
+          0.5
+        ]
+      ],
+      "error": "BAD_WEIGHTS"
+    },
+    {
+      "op": "split",
+      "args": [
+        {
+          "amount": 10,
+          "currency": "RUB"
+        },
+        []
+      ],
+      "error": "BAD_WEIGHTS"
     }
   ],
   "holds": [
