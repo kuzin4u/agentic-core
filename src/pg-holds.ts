@@ -88,7 +88,7 @@ export class PgHoldLedger implements AsyncHoldLedger {
         const r = await this.client.query<HoldRow>(
           `WITH a AS (
              UPDATE core_hold_accounts SET reserved = reserved + $3::bigint, version = version + 1
-             WHERE id = $1 AND currency = $4 AND limit_amount - committed - reserved >= $3::bigint
+             WHERE id = $1 AND currency = $4
                AND NOT EXISTS (SELECT 1 FROM core_holds WHERE ref = $2)
              RETURNING id, currency)
            INSERT INTO core_holds (account, ref, currency, amount, state, expires_at)
