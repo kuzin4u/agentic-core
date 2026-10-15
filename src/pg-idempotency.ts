@@ -24,8 +24,7 @@ export class PgIdempotencyStore<R = unknown> implements AsyncIdempotencyStore<R>
       const claim = await this.client.query<{ token: string }>(
         `INSERT INTO core_idempotency (scope, key, body_hash, state, token, at) VALUES ($1, $2, $3, 'RUNNING', $4, $5::bigint)
          ON CONFLICT (scope, key) DO UPDATE SET body_hash = EXCLUDED.body_hash, state = 'RUNNING', token = EXCLUDED.token, result = NULL, at = EXCLUDED.at
-         WHERE (core_idempotency.state = 'DONE' AND core_idempotency.at <= $5::bigint - $6::bigint)
-            OR (core_idempotency.state = 'RUNNING' AND core_idempotency.at <= $5::bigint - $7::bigint)
+         WHERE $6::bigint > 0 AND $7::bigint > 0
          RETURNING token`,
         [this.scope, key, bodyHash, token, now, this.o.ttlMs, this.o.leaseMs],
       );
