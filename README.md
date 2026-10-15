@@ -7,7 +7,7 @@ npm install
 npm test
 ```
 
-Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.2.2"`. Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
+Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.3.0"` (после тега; переход с 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
 
 ## Журнал на PostgreSQL (К6, с v0.3.0)
 
