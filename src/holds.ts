@@ -1,4 +1,5 @@
-import { isCurrencyCode, type CurrencyCode, type Money } from "./money.js";
+import type { CurrencyCode, Money } from "./money.js";
+import { units } from "./holds-input.js";
 
 /** Учёт удержаний: резерв → закрепление → освобождение.
  *  Один механизм для бюджета мандата (Платформа ПС, П3) и для эскроу (НСВР, BankAdapter).
@@ -22,13 +23,6 @@ export interface Account { id: string; currency: CurrencyCode; limit: number; co
 
 export class HoldError extends Error {
   constructor(public code: "INSUFFICIENT" | "UNKNOWN_ACCOUNT" | "UNKNOWN_HOLD" | "BAD_AMOUNT" | "BAD_STATE" | "REF_CONFLICT" | "CURRENCY_MISMATCH" | "ACCOUNT_CONFLICT" | "BAD_CURRENCY", msg?: string) { super(msg ?? code); }
-}
-
-/** Сумма из Money: безопасное целое ≥ min, иначе BAD_AMOUNT; код валюты — как в money, иначе BAD_CURRENCY. */
-function units(m: Money, min: number): number {
-  if (!m || !Number.isSafeInteger(m.amount) || m.amount < min) throw new HoldError("BAD_AMOUNT");
-  if (!isCurrencyCode(m.currency)) throw new HoldError("BAD_CURRENCY");
-  return m.amount;
 }
 
 export class HoldLedger {
@@ -115,4 +109,29 @@ export class HoldLedger {
 
   private acc(id: string) { const a = this.accounts.get(id); if (!a) throw new HoldError("UNKNOWN_ACCOUNT"); return a; }
   private hold(id: string) { const h = this.holds.get(id); if (!h) throw new HoldError("UNKNOWN_HOLD"); return h; }
+}
+
+/** Удержания с асинхронным хранилищем (К6 п. 4, п. 10): те же операции, коды ошибок и векторы, что у HoldLedger. */
+export interface AsyncHoldLedger {
+  openAccount(id: string, limit: Money): Promise<Account>;
+  available(id: string): Promise<Money>;
+  account(id: string): Promise<Account>;
+  reserve(account: string, amount: Money, ref: string, expires_at?: number | null): Promise<Hold>;
+  commit(holdId: string, amount: Money, releaseRest?: boolean): Promise<Hold>;
+  release(holdId: string): Promise<Hold>;
+  expire(now: number): Promise<Hold[]>;
+  get(holdId: string): Promise<Hold>;
+}
+
+/** HoldLedger за асинхронным интерфейсом — для тестов потребителей без базы. */
+export class AsyncMemoryHoldLedger implements AsyncHoldLedger {
+  constructor(private ledger = new HoldLedger()) {}
+  async openAccount(id: string, limit: Money) { return this.ledger.openAccount(id, limit); }
+  async available(id: string) { return this.ledger.available(id); }
+  async account(id: string) { return this.ledger.account(id); }
+  async reserve(account: string, amount: Money, ref: string, expires_at: number | null = null) { return this.ledger.reserve(account, amount, ref, expires_at); }
+  async commit(holdId: string, amount: Money, releaseRest = false) { return this.ledger.commit(holdId, amount, releaseRest); }
+  async release(holdId: string) { return this.ledger.release(holdId); }
+  async expire(now: number) { return this.ledger.expire(now); }
+  async get(holdId: string) { return this.ledger.get(holdId); }
 }
