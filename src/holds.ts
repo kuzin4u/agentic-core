@@ -21,12 +21,13 @@ export interface Hold {
 export interface Account { id: string; currency: CurrencyCode; limit: number; committed: number; reserved: number; version: number; }
 
 export class HoldError extends Error {
-  constructor(public code: "INSUFFICIENT" | "UNKNOWN_ACCOUNT" | "UNKNOWN_HOLD" | "BAD_AMOUNT" | "BAD_STATE" | "REF_CONFLICT" | "CURRENCY_MISMATCH" | "ACCOUNT_CONFLICT", msg?: string) { super(msg ?? code); }
+  constructor(public code: "INSUFFICIENT" | "UNKNOWN_ACCOUNT" | "UNKNOWN_HOLD" | "BAD_AMOUNT" | "BAD_STATE" | "REF_CONFLICT" | "CURRENCY_MISMATCH" | "ACCOUNT_CONFLICT" | "BAD_CURRENCY", msg?: string) { super(msg ?? code); }
 }
 
-/** Сумма из Money: безопасное целое ≥ min, иначе BAD_AMOUNT. */
+/** Сумма из Money: безопасное целое ≥ min, иначе BAD_AMOUNT; код валюты — как в money, иначе BAD_CURRENCY. */
 function units(m: Money, min: number): number {
   if (!m || !Number.isSafeInteger(m.amount) || m.amount < min) throw new HoldError("BAD_AMOUNT");
+  if (!isCurrencyCode(m.currency)) throw new HoldError("BAD_CURRENCY");
   return m.amount;
 }
 
@@ -39,7 +40,6 @@ export class HoldLedger {
   /** Открытие счёта. Повтор с тем же лимитом и валютой — прежний счёт без изменений; иначе ACCOUNT_CONFLICT (К9 п. 6). */
   openAccount(id: string, limit: Money): Account {
     const n = units(limit, 0);
-    if (!isCurrencyCode(limit.currency)) throw new HoldError("BAD_AMOUNT");
     const prev = this.accounts.get(id);
     if (prev) {
       if (prev.limit !== n || prev.currency !== limit.currency) throw new HoldError("ACCOUNT_CONFLICT");

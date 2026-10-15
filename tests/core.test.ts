@@ -73,12 +73,14 @@ describe("удержания: резерв → закрепление → осв
     expect(h2.id).toBe(h1.id); expect(L.available("A")).toEqual(R(600));
     expect(() => L.reserve("A", R(500), "r1")).toThrowError(/REF_CONFLICT/);
   });
-  it("повторное открытие не теряет резерв; неверная сумма или код валюты — BAD_AMOUNT (К9 п. 6)", () => {
+  it("повторное открытие не теряет резерв; неверная сумма — BAD_AMOUNT, код валюты — BAD_CURRENCY (К9 п. 6)", () => {
     const L = new HoldLedger(); L.openAccount("A", R(1000)); L.reserve("A", R(400), "r1");
     expect(L.openAccount("A", R(1000))).toMatchObject({ reserved: 400, currency: "RUB" });
     expect(L.available("A")).toEqual(R(600));
-    for (const bad of [{ amount: -1, currency: "RUB" }, { amount: 1.5, currency: "RUB" }, { amount: 10, currency: "rub" }])
+    for (const bad of [{ amount: -1, currency: "RUB" }, { amount: 1.5, currency: "RUB" }])
       expect(() => L.openAccount("B", bad)).toThrowError(/BAD_AMOUNT/);
+    for (const cur of ["rub", "RU", "1AB"]) expect(() => L.openAccount("B", { amount: 10, currency: cur })).toThrowError(/BAD_CURRENCY/);
+    expect(() => L.commit(L.get(L.reserve("A", R(1), "r3").id).id, { amount: 1, currency: "rub" })).toThrowError(/BAD_CURRENCY/);
     expect(() => L.reserve("A", { amount: 0, currency: "RUB" }, "r0")).toThrowError(/BAD_AMOUNT/);
     expect(L.get(L.reserve("A", { amount: 1, currency: "RUB" }, "r2").id).currency).toBe("RUB");
   });

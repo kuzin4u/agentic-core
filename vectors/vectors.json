@@ -614,6 +614,37 @@
     },
     {
       "op": [
+        "open",
+        "MND-2",
+        {
+          "amount": 500000,
+          "currency": "rub"
+        }
+      ],
+      "error": "BAD_CURRENCY",
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": [
+        "reserve",
+        "MND-1",
+        {
+          "amount": 1000,
+          "currency": "rub"
+        },
+        "OP-rub"
+      ],
+      "error": "BAD_CURRENCY",
+      "available": {
+        "amount": 311000,
+        "currency": "RUB"
+      }
+    },
+    {
+      "op": [
         "commit",
         "OP-1",
         {

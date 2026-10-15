@@ -62,6 +62,8 @@ const holds = [
   { op: ["open", "MND-1", R(500000)], available: R(311000) },
   { op: ["open", "MND-1", R(600000)], error: "ACCOUNT_CONFLICT", available: R(311000) },
   { op: ["open", "MND-1", m(500000, "USD")], error: "ACCOUNT_CONFLICT", available: R(311000) },
+  { op: ["open", "MND-2", m(500000, "rub")], error: "BAD_CURRENCY", available: R(311000) },
+  { op: ["reserve", "MND-1", m(1000, "rub"), "OP-rub"], error: "BAD_CURRENCY", available: R(311000) },
   { op: ["commit", "OP-1", m(150000, "USD"), true], error: "CURRENCY_MISMATCH", available: R(311000) },
   { op: ["commit", "OP-1", R(150000), true], available: R(350000) },
   { op: ["reserve", "MND-1", R(100000), "OP-3", 1000], available: R(250000) },
