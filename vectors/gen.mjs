@@ -73,9 +73,35 @@ const holds = [
   { op: ["release", "OP-4"], available: R(350000) },
   { op: ["commit", "OP-4", R(1000)], error: "BAD_STATE", available: R(350000) },
 ];
-const out = JSON.stringify({ version: 2, canonical, journal, journal_chain_genesis, money, holds }, null, 2);
+// Слабые открытые ключи Ed25519 (К10): 32 байта точки в hex, ответ isWeakEd25519 — по построению, не из кода ядра.
+// Точки малого порядка — независимый список (как блок-лист libsodium); y ≥ p и x = 0 со знаковым битом — неканонические.
+const ed25519_weak_keys = [
+  ...[
+    "0100000000000000000000000000000000000000000000000000000000000000",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "0000000000000000000000000000000000000000000000000000000000000080",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+  ].map((point) => ({ point, weak: true, why: "small_order" })),
+  { point: "0100000000000000000000000000000000000000000000000000000000000080", weak: true, why: "non_canonical: нейтраль, x = 0 со знаковым битом" },
+  { point: "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", weak: true, why: "non_canonical: y = −1, x = 0 со знаковым битом" },
+  { point: "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", weak: true, why: "non_canonical: y = p" },
+  { point: "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", weak: true, why: "non_canonical: y = p + 1" },
+  { point: "f0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", weak: true, why: "non_canonical: y = p + 3 (точка большого порядка y = 3)" },
+  { point: "02" + "00".repeat(31), weak: true, why: "off_curve: y = 2" },
+  { point: "00".repeat(31), weak: true, why: "length: 31 байт" },
+  { point: "58" + "66".repeat(31) + "00", weak: true, why: "length: 33 байта" },
+  { point: "58" + "66".repeat(31), weak: false, why: "base_point: B, RFC 8032 §5.1" },
+  { point: "03" + "00".repeat(31), weak: false, why: "valid: y = 3, каноническая запись" },
+  { point: "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", weak: false, why: "valid: RFC 8032 §7.1, тест 1" },
+];
+const out = JSON.stringify({ version: 2, canonical, journal, journal_chain_genesis, money, holds, ed25519_weak_keys }, null, 2);
 // Число 15–19 цифр, проходящее проверку Луна, сканер ключей и реквизитов примет за номер карты — такие векторы не пишем.
+// Шаблон — как DIGITS в .claude/hooks/guard.py: отдельно стоящее число, допускаются пробел и дефис между цифрами.
 const luhn = (s) => [...s].reverse().reduce((a, c, i) => { let d = +c; if (i % 2) { d *= 2; if (d > 9) d -= 9; } return a + d; }, 0) % 10 === 0;
-for (const n of out.match(/\d{15,19}/g) ?? []) if (new Set(n).size > 1 && luhn(n)) throw new Error(`число ${n.length} цифр проходит проверку Луна — замените вектор`);
+for (const m of out.match(/(?<![\w-])(?:\d[ -]?){15,19}(?![\w-])/g) ?? []) { const n = m.replace(/[ -]/g, ""); if (n.length >= 15 && new Set(n).size > 1 && luhn(n)) throw new Error(`число ${n.length} цифр проходит проверку Луна — замените вектор`); }
 writeFileSync(new URL("./vectors.json", import.meta.url), out);
 console.log("vectors written");
