@@ -18,17 +18,90 @@ const journal = [{ ...e1b, hash: h1 }, { ...e2b, hash: sha(canon(e2b)) }];
 const journal_chain_genesis = ["mandates:client-42", "журнал-сделок", "\u0439", "\u0438\u0306"].map((chain) => ({
   chain, chain_utf8_hex: Buffer.from(chain, "utf8").toString("hex"), genesis: sha("core_journal:" + chain),
 }));
-const holds = [
-  { op: ["open", "MND-1", 500000], available: 500000 },
-  { op: ["reserve", "MND-1", 189000, "OP-1"], available: 311000 },
-  { op: ["reserve", "MND-1", 340000, "OP-2"], error: "INSUFFICIENT", available: 311000 },
-  { op: ["commit", "OP-1", 150000, true], available: 350000 },
-  { op: ["reserve", "MND-1", 100000, "OP-3", 1000], available: 250000 },
-  { op: ["expire", 2000], available: 350000 },
-  { op: ["reserve", "MND-1", 50000, "OP-4"], available: 300000 },
-  { op: ["release", "OP-4"], available: 350000 },
-  { op: ["release", "OP-4"], available: 350000 },
-  { op: ["commit", "OP-4", 1000], error: "BAD_STATE", available: 350000 },
+// Суммы (К9): целые минимальные единицы + код валюты; ожидания считаются здесь отдельно от src, через BigInt.
+const M = Number.MAX_SAFE_INTEGER;
+const CUR = /^[A-Z][A-Z0-9]{2,11}$/;
+const m = (amount, currency) => ({ amount, currency });
+const valid = (x) => Number.isSafeInteger(x.amount) && x.amount >= 0 && CUR.test(x.currency);
+const err = (x) => !Number.isSafeInteger(x.amount) || x.amount < 0 ? "BAD_AMOUNT" : "BAD_CURRENCY";
+const vMoney = (a) => valid(a) ? { result: a } : { error: err(a) };
+const vAdd = (a, b) => {
+  for (const x of [a, b]) if (!valid(x)) return { error: err(x) };
+  if (a.currency !== b.currency) return { error: "CURRENCY_MISMATCH" };
+  const s = a.amount + b.amount;
+  return Number.isSafeInteger(s) ? { result: m(s, a.currency) } : { error: "BAD_AMOUNT" };
+};
+const vSplit = (t, w) => {
+  if (!valid(t)) return { error: err(t) };
+  if (w.length === 0 || !w.every((x) => Number.isSafeInteger(x) && x >= 0)) return { error: "BAD_WEIGHTS" };
+  const sum = w.reduce((a, x) => a + BigInt(x), 0n);
+  if (sum === 0n) return { error: "BAD_WEIGHTS" };
+  const parts = w.map((x) => (BigInt(t.amount) * BigInt(x)) / sum);
+  let last = w.length - 1; while (w[last] === 0) last--;
+  parts[last] += BigInt(t.amount) - parts.reduce((a, b) => a + b, 0n);
+  return { result: parts.map((p) => m(Number(p), t.currency)) };
+};
+const money = [
+  ...[m(189000, "RUB"), m(1500, "JPY"), m(12345, "KWD"), m(2500000, "USDC"), m(0, "RUB"), m(M, "USDC"),
+    m(M + 1, "RUB"), m(-1, "RUB"), m(1.5, "RUB"), m(1, "rub"), m(1, "RU"), m(1, "1AB")].map((a) => ({ op: "money", args: [a], ...vMoney(a) })),
+  ...[[m(150, "JPY"), m(50, "JPY")], [m(M - 2, "USDC"), m(2, "USDC")], [m(M, "RUB"), m(1, "RUB")], [m(100, "RUB"), m(100, "USD")],
+    [m(1, "KWD"), m(1, "kwd")]].map((args) => ({ op: "add", args, ...vAdd(...args) })),
+  ...[[m(100001, "RUB"), [1, 1, 1]], [m(5, "RUB"), [1, 1, 0]], [m(7, "KWD"), [0, 3, 0, 0]], [m(1000000, "USDC"), [2500, 7500]],
+    [m(M, "USDC"), [3, 1]], [m(10, "RUB"), [0, 0]], [m(10, "RUB"), [0.5, 0.5]], [m(10, "RUB"), []]]
+    .map((args) => ({ op: "split", args, ...vSplit(...args) })),
 ];
-writeFileSync(new URL("./vectors.json", import.meta.url), JSON.stringify({ version: 1, canonical, journal, journal_chain_genesis, holds }, null, 2));
+// Удержания (К9 пп. 5–6): суммы с валютой; available — Money.
+const R = (n) => m(n, "RUB");
+const holds = [
+  { op: ["open", "MND-1", R(500000)], available: R(500000) },
+  { op: ["reserve", "MND-1", R(189000), "OP-1"], available: R(311000) },
+  { op: ["reserve", "MND-1", R(340000), "OP-2"], error: "INSUFFICIENT", available: R(311000) },
+  { op: ["reserve", "MND-1", m(1000, "USD"), "OP-USD"], error: "CURRENCY_MISMATCH", available: R(311000) },
+  { op: ["reserve", "MND-1", m(189000, "USD"), "OP-1"], error: "REF_CONFLICT", available: R(311000) },
+  { op: ["reserve", "MND-1", R(189000), "OP-1"], available: R(311000) },
+  { op: ["open", "MND-1", R(500000)], available: R(311000) },
+  { op: ["open", "MND-1", R(600000)], error: "ACCOUNT_CONFLICT", available: R(311000) },
+  { op: ["open", "MND-1", m(500000, "USD")], error: "ACCOUNT_CONFLICT", available: R(311000) },
+  { op: ["open", "MND-2", m(500000, "rub")], error: "BAD_CURRENCY", available: R(311000) },
+  { op: ["reserve", "MND-1", m(1000, "rub"), "OP-rub"], error: "BAD_CURRENCY", available: R(311000) },
+  { op: ["commit", "OP-1", m(150000, "USD"), true], error: "CURRENCY_MISMATCH", available: R(311000) },
+  { op: ["commit", "OP-1", R(150000), true], available: R(350000) },
+  { op: ["reserve", "MND-1", R(100000), "OP-3", 1000], available: R(250000) },
+  { op: ["expire", 2000], available: R(350000) },
+  { op: ["reserve", "MND-1", R(50000), "OP-4"], available: R(300000) },
+  { op: ["release", "OP-4"], available: R(350000) },
+  { op: ["release", "OP-4"], available: R(350000) },
+  { op: ["commit", "OP-4", R(1000)], error: "BAD_STATE", available: R(350000) },
+];
+// Слабые открытые ключи Ed25519 (К10): 32 байта точки в hex, ответ isWeakEd25519 — по построению, не из кода ядра.
+// Точки малого порядка — независимый список (как блок-лист libsodium); y ≥ p и x = 0 со знаковым битом — неканонические.
+const ed25519_weak_keys = [
+  ...[
+    "0100000000000000000000000000000000000000000000000000000000000000",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "0000000000000000000000000000000000000000000000000000000000000080",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+  ].map((point) => ({ point, weak: true, why: "small_order" })),
+  { point: "0100000000000000000000000000000000000000000000000000000000000080", weak: true, why: "non_canonical: нейтраль, x = 0 со знаковым битом" },
+  { point: "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", weak: true, why: "non_canonical: y = −1, x = 0 со знаковым битом" },
+  { point: "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", weak: true, why: "non_canonical: y = p" },
+  { point: "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", weak: true, why: "non_canonical: y = p + 1" },
+  { point: "f0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", weak: true, why: "non_canonical: y = p + 3 (точка большого порядка y = 3)" },
+  { point: "02" + "00".repeat(31), weak: true, why: "off_curve: y = 2" },
+  { point: "00".repeat(31), weak: true, why: "length: 31 байт" },
+  { point: "58" + "66".repeat(31) + "00", weak: true, why: "length: 33 байта" },
+  { point: "58" + "66".repeat(31), weak: false, why: "base_point: B, RFC 8032 §5.1" },
+  { point: "03" + "00".repeat(31), weak: false, why: "valid: y = 3, каноническая запись" },
+  { point: "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", weak: false, why: "valid: RFC 8032 §7.1, тест 1" },
+];
+const out = JSON.stringify({ version: 2, canonical, journal, journal_chain_genesis, money, holds, ed25519_weak_keys }, null, 2);
+// Число 15–19 цифр, проходящее проверку Луна, сканер ключей и реквизитов примет за номер карты — такие векторы не пишем.
+// Шаблон — как DIGITS в .claude/hooks/guard.py: отдельно стоящее число, допускаются пробел и дефис между цифрами.
+const luhn = (s) => [...s].reverse().reduce((a, c, i) => { let d = +c; if (i % 2) { d *= 2; if (d > 9) d -= 9; } return a + d; }, 0) % 10 === 0;
+for (const m of out.match(/(?<![\w-])(?:\d[ -]?){15,19}(?![\w-])/g) ?? []) { const n = m.replace(/[ -]/g, ""); if (n.length >= 15 && new Set(n).size > 1 && luhn(n)) throw new Error(`число ${n.length} цифр проходит проверку Луна — замените вектор`); }
+writeFileSync(new URL("./vectors.json", import.meta.url), out);
 console.log("vectors written");

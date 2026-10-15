@@ -7,3 +7,7 @@ export * from "./events.js";
 export * from "./money.js";
 export * from "./sql.js";
 export * from "./pg-journal.js";
+export * from "./pg-holds.js";
+export * from "./pg-idempotency.js";
+export * from "./pg-nonces.js";
+export { isWeakEd25519 } from "./ed25519.js";

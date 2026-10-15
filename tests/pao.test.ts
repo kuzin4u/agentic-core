@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { Worker } from "node:worker_threads";
 import { execFileSync } from "node:child_process";
 import { newEd25519Signer, sha256Hex } from "../src/index.js";
 import * as core from "../src/index.js";
@@ -26,6 +28,29 @@ async function setup(stubOpts: Partial<PaoStubOptions> = {}, clientOpts: Partial
   const sleeps: number[] = [];
   const client = new PaoClient({ baseUrl, agentCode: AGENT, signer, sleep: async (ms) => { sleeps.push(ms); }, ...clientOpts });
   return { stub, client, sleeps, publicKey, baseUrl };
+}
+
+/** Разбор длинного входа в worker (П5.2): ждать не дольше budgetMs после загрузки модулей, затем terminate().
+ *  Синхронный сверхлинейный цикл таймаут vitest не прерывает — без worker он повесил бы CI. */
+function linearInWorker(kind: "baseUrl" | "retryAfter", n: number, budgetMs = 2000): Promise<unknown> {
+  // каждый src/**/*.ts — не новее своего dist/src/**/*.js (без pretest dist мог устареть)
+  for (const f of readdirSync("src", { recursive: true }) as string[]) {
+    if (!f.endsWith(".ts")) continue;
+    const src = join("src", f), out = join("dist", "src", f.replace(/\.ts$/, ".js"));
+    if ((statSync(out, { throwIfNoEntry: false })?.mtimeMs ?? 0) < statSync(src).mtimeMs) throw new Error(`${out} старше ${src}: npm run build (в npm test — pretest)`);
+  }
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL("./linear-worker.mjs", import.meta.url));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = (f: () => void) => { clearTimeout(timer); void w.terminate(); f(); };
+    w.on("message", (m: { ready?: true; result?: unknown }) => {
+      if (m.ready) {
+        timer = setTimeout(() => done(() => reject(new Error(`сверхлинейный разбор: ${kind} на ${n} символов дольше ${budgetMs} мс`))), budgetMs);
+        w.postMessage({ kind, n });
+      } else done(() => resolve(m.result));
+    });
+    w.on("error", (e) => done(() => reject(e)));
+  });
 }
 
 const rejected = (p: Promise<unknown>) => p.then(() => { throw new Error("ожидался отказ"); }, (e: unknown) => e as PaoCallError);
@@ -194,28 +219,16 @@ describe("ПАО: клиент против заглушки", () => {
   });
 
   it("baseUrl: хвостовые «/» срезаются за линейное время (CodeQL js/polynomial-redos)", async () => {
-    const { signer } = newEd25519Signer("k-x");
-    const bad = "http://h" + "/".repeat(200_000) + "x";
-    const t0 = performance.now();
-    new PaoClient({ baseUrl: bad, agentCode: AGENT, signer });
-    expect(performance.now() - t0).toBeLessThan(50);
+    expect(await linearInWorker("baseUrl", 2_000_000)).toBe(true);
     const { stub, baseUrl } = await setup();
     const client = new PaoClient({ baseUrl: baseUrl + "///", agentCode: AGENT, signer: newEd25519Signer("k-y").signer });
     await client.call("GET /.well-known/pao-configuration", {});
     expect(stub.violations).toEqual([]);
   });
 
-  it("Retry-After: длинная плохая строка разбирается за миллисекунды, повтора нет", async () => {
-    const { signer } = newEd25519Signer("k-x");
+  it("Retry-After: длинная плохая строка разбирается линейно, повтора нет", async () => {
     // Без тела ПАО повтор только по разобранному Retry-After; плохой заголовок — вызывающему, огромный — выше потолка.
-    for (const header of ["1".repeat(200_000) + "x", " ".repeat(200_000) + "1a", "9".repeat(200_000)]) {
-      const fake: typeof fetch = async () => new Response("rate limited", { status: 429, headers: { "retry-after": header } });
-      const client = new PaoClient({ baseUrl: "http://h", agentCode: AGENT, signer, fetch: fake, sleep: async () => {} });
-      const t0 = performance.now();
-      const e = await rejected(client.call("GET /.well-known/pao-configuration", {}));
-      expect(performance.now() - t0).toBeLessThan(50);
-      expect([e.status, e.attempts]).toEqual([429, 1]);
-    }
+    expect(await linearInWorker("retryAfter", 2_000_000)).toEqual([[429, 1], [429, 1], [429, 1]]);
   });
 
   it("сбой сети: повтор с тем же Idempotency-Key", async () => {

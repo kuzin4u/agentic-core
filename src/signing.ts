@@ -1,6 +1,7 @@
 import { generateKeyPairSync, sign as cSign, verify as cVerify, createPublicKey, KeyObject } from "node:crypto";
 import { createHash } from "node:crypto";
 import { isWeakEd25519 } from "./ed25519.js";
+import { nonceStoreOptions } from "./nonce-options.js";
 
 /** Подпись HTTP-обращений (схема HTTP Message Signatures, упрощённый профиль).
  *  Алгоритм — атрибут ключа: ed25519 в песочнице; ГОСТ — точка расширения через интерфейс Signer. */
@@ -89,4 +90,67 @@ export function verifyRequest(
   try { base = signatureBase(req, components); } catch { return { ok: false, code: "SIGNATURE_INVALID" }; }
   const v = (opts.verifier ?? ed25519Verifier).verify(m[3]!, key.publicKey, Buffer.from(base), Buffer.from(s[1]!, "base64"));
   return v ? { ok: true, kid: m[2]! } : { ok: false, code: "SIGNATURE_INVALID" };
+}
+
+type KeyRecord = { alg: string; publicKey: string; status: "ACTIVE" | "REVOKED" | "EXPIRED" };
+
+/** Как verifyRequest, но nonce и ключ — из асинхронных хранилищ (К6 п. 13). nonce проверяется последним, после подписи:
+ *  в хранилище попадают только nonce подписанных обращений. Отличие кодов от verifyRequest: повтор nonce с отозванным
+ *  ключом — AGENT_KEY_REVOKED, а не SIGNATURE_INVALID. */
+export async function verifyRequestAsync(
+  req: HttpLike,
+  lookupKey: (kid: string) => KeyRecord | undefined | Promise<KeyRecord | undefined>,
+  opts: { now: number; skewSec: number; seenNonce: (n: string) => Promise<boolean>; verifier?: Verifier },
+): Promise<VerifyResult> {
+  const h = Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k.toLowerCase(), v]));
+  const m = /^sig1=\(([^)]*)\);keyid="([^"]+)";alg="([^"]+)"$/.exec(h["signature-input"] ?? "");
+  const s = /^sig1=:([^:]+):$/.exec(h["signature"] ?? "");
+  if (!m || !s) return { ok: false, code: "SIGNATURE_INVALID" };
+  const components = m[1]!.split(" ").map((x) => x.replace(/"/g, ""));
+  for (const req_c of DEFAULT_COMPONENTS) if (!components.includes(req_c)) return { ok: false, code: "SIGNATURE_INVALID" };
+  if (req.body !== undefined && h["content-digest"] !== contentDigest(req.body)) return { ok: false, code: "SIGNATURE_INVALID" };
+  const ts = Date.parse(h["x-timestamp"] ?? "");
+  if (!Number.isFinite(ts) || Math.abs(opts.now - ts) > opts.skewSec * 1000) return { ok: false, code: "SIGNATURE_INVALID" };
+  const key = await lookupKey(m[2]!);
+  if (!key) return { ok: false, code: "SIGNATURE_INVALID" };
+  if (key.status !== "ACTIVE") return { ok: false, code: "AGENT_KEY_REVOKED" };
+  let base: string;
+  try { base = signatureBase(req, components); } catch { return { ok: false, code: "SIGNATURE_INVALID" }; }
+  const v = (opts.verifier ?? ed25519Verifier).verify(m[3]!, key.publicKey, Buffer.from(base), Buffer.from(s[1]!, "base64"));
+  if (!v) return { ok: false, code: "SIGNATURE_INVALID" };
+  if (await opts.seenNonce(h["x-nonce"] ?? "")) return { ok: false, code: "SIGNATURE_INVALID" };
+  return { ok: true, kid: m[2]! };
+}
+
+/** Использованные nonce (К6 п. 12). seen — проверка и запись одной операцией: true, если nonce уже был (или пуст).
+ *  purge — удалить старше retainMs; retainMs ≥ 2 × окна времени проверки: обращение с меткой на краю окна
+ *  принимается ещё skewSec после записи nonce, и его повтор должен быть отвергнут. */
+export interface AsyncNonceStore {
+  seen(nonce: string): Promise<boolean>;
+  purge(): Promise<number>;
+}
+
+export interface NonceStoreOptions {
+  /** Сколько хранить nonce, мс; не меньше 2 × skewSec × 1000. */
+  retainMs: number;
+  /** Окно времени проверки (skewSec у verifyRequest/verifyRequestAsync): если передано — retainMs проверяется. */
+  skewSec?: number;
+  now?: () => number;
+}
+
+export class AsyncMemoryNonceStore implements AsyncNonceStore {
+  private rows = new Map<string, number>();
+  private o: { retainMs: number; now: () => number };
+  constructor(opts: NonceStoreOptions) { this.o = nonceStoreOptions(opts); }
+  async seen(nonce: string): Promise<boolean> {
+    if (!nonce || this.rows.has(nonce)) return true;
+    this.rows.set(nonce, this.o.now());
+    return false;
+  }
+  async purge(): Promise<number> {
+    const before = this.o.now() - this.o.retainMs;
+    let n = 0;
+    for (const [k, at] of this.rows) if (at < before) { this.rows.delete(k); n++; }
+    return n;
+  }
 }

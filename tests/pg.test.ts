@@ -80,7 +80,7 @@ describe.skipIf(!DATABASE_URL)("PostgreSQL: миграция журнала и �
   });
 
   it("миграции применяются один раз", async () => {
-    expect(await applyMigrations(db)).toEqual(["001_journal.sql"]);
+    expect(await applyMigrations(db)).toEqual(["001_journal.sql", "002_holds.sql", "003_idempotency.sql", "004_nonces.sql"]);
     expect(await applyMigrations(db)).toEqual([]);
     const t = await db.query("SELECT tgname FROM pg_trigger WHERE tgrelid = 'core_journal'::regclass AND NOT tgisinternal ORDER BY tgname");
     expect(t.rows.map((r) => r.tgname)).toEqual(["core_journal_no_truncate", "core_journal_no_update_delete"]);

@@ -4,7 +4,7 @@ import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import {
   canonicalJson, sha256Hex, HashChainJournal, MemoryJournalStore, HoldLedger, HoldError,
   IdempotencyStore, IdempotencyConflict, newEd25519Signer, signRequest, verifyRequest, ed25519Verifier,
-  Outbox, Inbox, splitByWeights,
+  Outbox, Inbox, splitMoney,
 } from "../src/index.js";
 import { decodePoint, timesEight, isIdentity, isWeakEd25519 } from "../src/ed25519.js";
 
@@ -43,34 +43,49 @@ describe("журнал с хэш-цепочкой", () => {
 describe("удержания: резерв → закрепление → освобождение", () => {
   it("сценарий из векторов", () => {
     const L = new HoldLedger();
+    const ids: Record<string, string> = {};
     for (const step of V.holds) {
       const [op, ...args] = step.op;
-      let ids: Record<string, string> = (globalThis as any).__ids ??= {};
       try {
         if (op === "open") L.openAccount(args[0], args[1]);
         if (op === "reserve") ids[args[2]] = L.reserve(args[0], args[1], args[2], args[3] ?? null).id;
         if (op === "commit") L.commit(ids[args[0]]!, args[1], args[2] ?? false);
         if (op === "release") L.release(ids[args[0]]!);
         if (op === "expire") L.expire(args[0]);
-        expect(step.error ?? null).toBeNull();
+        expect(step.error ?? null, JSON.stringify(step.op)).toBeNull();
       } catch (e) {
-        expect((e as HoldError).code).toBe(step.error);
+        expect((e as HoldError).code, JSON.stringify(step.op)).toBe(step.error);
       }
-      expect(L.available("MND-1")).toBe(step.available);
+      expect(L.available("MND-1")).toEqual(step.available);
     }
   });
-  it("конкурентные резервы не превышают лимит ни на копейку", () => {
-    const L = new HoldLedger(); L.openAccount("A", 300000);
+  const R = (amount: number) => ({ amount, currency: "RUB" });
+  it("конкурентные резервы не превышают лимит ни на единицу", () => {
+    const L = new HoldLedger(); L.openAccount("A", R(300000));
     let ok = 0;
-    for (let i = 0; i < 20; i++) { try { L.reserve("A", 100000, `op-${i}`); ok++; } catch { /* INSUFFICIENT */ } }
+    for (let i = 0; i < 20; i++) { try { L.reserve("A", R(100000), `op-${i}`); ok++; } catch { /* INSUFFICIENT */ } }
     expect(ok).toBe(3);
-    expect(L.available("A")).toBe(0);
+    expect(L.available("A")).toEqual(R(0));
   });
   it("повтор резерва с тем же ref идемпотентен, с другой суммой — конфликт", () => {
-    const L = new HoldLedger(); L.openAccount("A", 1000);
-    const h1 = L.reserve("A", 400, "r1"); const h2 = L.reserve("A", 400, "r1");
-    expect(h2.id).toBe(h1.id); expect(L.available("A")).toBe(600);
-    expect(() => L.reserve("A", 500, "r1")).toThrowError(/REF_CONFLICT/);
+    const L = new HoldLedger(); L.openAccount("A", R(1000));
+    const h1 = L.reserve("A", R(400), "r1"); const h2 = L.reserve("A", R(400), "r1");
+    expect(h2.id).toBe(h1.id); expect(L.available("A")).toEqual(R(600));
+    expect(() => L.reserve("A", R(500), "r1")).toThrowError(/REF_CONFLICT/);
+  });
+  it("повторное открытие не теряет резерв; неверная сумма — BAD_AMOUNT, код валюты — BAD_CURRENCY (К9 п. 6)", () => {
+    const L = new HoldLedger(); L.openAccount("A", R(1000)); L.reserve("A", R(400), "r1");
+    expect(L.openAccount("A", R(1000))).toMatchObject({ reserved: 400, currency: "RUB" });
+    expect(L.available("A")).toEqual(R(600));
+    for (const bad of [{ amount: -1, currency: "RUB" }, { amount: 1.5, currency: "RUB" }])
+      expect(() => L.openAccount("B", bad)).toThrowError(/BAD_AMOUNT/);
+    for (const cur of ["rub", "RU", "1AB"]) expect(() => L.openAccount("B", { amount: 10, currency: cur })).toThrowError(/BAD_CURRENCY/);
+    expect(() => L.commit(L.get(L.reserve("A", R(1), "r3").id).id, { amount: 1, currency: "rub" })).toThrowError(/BAD_CURRENCY/);
+    expect(() => L.reserve("A", { amount: 0, currency: "RUB" }, "r0")).toThrowError(/BAD_AMOUNT/);
+    expect(L.get(L.reserve("A", { amount: 1, currency: "RUB" }, "r2").id).currency).toBe("RUB");
+    // срок и момент — безопасные целые мс (/audit № 4): иначе RangeError, как на PG
+    expect(() => L.reserve("A", R(1), "r4", 1.5)).toThrow(RangeError);
+    expect(() => L.expire(NaN)).toThrow(RangeError);
   });
 });
 
@@ -206,8 +221,8 @@ describe("события", () => {
 });
 
 describe("деньги", () => {
-  it("распределение без потери копейки", () => {
-    const parts = splitByWeights(100001, [1, 1, 1]);
-    expect(parts.reduce((a, b) => a + b, 0)).toBe(100001);
+  it("распределение без потери единицы", () => {
+    const parts = splitMoney({ amount: 100001, currency: "RUB" }, [1, 1, 1]);
+    expect(parts.reduce((a, b) => a + b.amount, 0)).toBe(100001);
   });
 });
