@@ -1,5 +1,5 @@
 import type { CurrencyCode, Money } from "./money.js";
-import { units } from "./holds-input.js";
+import { instant, units } from "./holds-input.js";
 
 /** Учёт удержаний: резерв → закрепление → освобождение.
  *  Один механизм для бюджета мандата (Платформа ПС, П3) и для эскроу (НСВР, BankAdapter).
@@ -54,6 +54,7 @@ export class HoldLedger {
   /** Резерв. Повтор с тем же ref, суммой и валютой возвращает прежний резерв (идемпотентность). */
   reserve(account: string, money: Money, ref: string, expires_at: number | null = null): Hold {
     const amount = units(money, 1);
+    instant(expires_at, true, "expires_at");
     const existing = this.byRef.get(ref);
     if (existing) {
       const h = this.holds.get(existing)!;
@@ -98,6 +99,7 @@ export class HoldLedger {
 
   /** Освобождение всех истёкших резервов на момент now. */
   expire(now: number): Hold[] {
+    instant(now, false, "now");
     const out: Hold[] = [];
     for (const h of this.holds.values()) {
       if (h.expires_at !== null && h.expires_at <= now && h.amount - h.committed - h.released > 0) out.push(this.release(h.id));

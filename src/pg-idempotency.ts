@@ -46,10 +46,12 @@ export class PgIdempotencyStore<R = unknown> implements AsyncIdempotencyStore<R>
       await this.client.query("DELETE FROM core_idempotency WHERE scope = $1 AND key = $2 AND token = $3", [this.scope, key, token]);
       throw e;
     }
+    const stored = canonicalJson(result ?? null);
     await this.client.query(
       "UPDATE core_idempotency SET state = 'DONE', result = $4, at = $5::bigint WHERE scope = $1 AND key = $2 AND token = $3 AND body_hash = $6",
-      [this.scope, key, token, canonicalJson(result ?? null), this.o.now(), bodyHash],
+      [this.scope, key, token, stored, this.o.now(), bodyHash],
     );
-    return result;
+    // первый ответ — тот же разбор JSON, что и повтор
+    return JSON.parse(stored) as R;
   }
 }

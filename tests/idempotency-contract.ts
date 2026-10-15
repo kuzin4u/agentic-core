@@ -62,6 +62,15 @@ export function idempotencyContract(make: MakeStore) {
     expect(await S.run("k", {}, async () => ({ n: 3 }))).toEqual({ result: { n: 2 }, replayed: true }); // но в хранилище — результат владельца
   });
 
+  it("первый ответ и повтор — один и тот же разбор JSON (/audit № 11)", async () => {
+    const S = make({}) as unknown as AsyncIdempotencyStore<unknown>;
+    const first = await S.run("d", {}, async () => ({ b: [1, { z: null }], a: "я", none: undefined }));
+    const again = await S.run("d", {}, async () => 0);
+    expect(first.result).toStrictEqual({ a: "я", b: [1, { z: null }] }); // поле undefined отброшено и в первом ответе
+    expect(again).toStrictEqual({ result: first.result, replayed: true });
+    expect((await S.run("u", {}, async () => undefined)).result).toBeNull();
+  });
+
   it("параметры: leaseMs больше ttlMs или не положительное — RangeError", () => {
     expect(() => make({ ttlMs: 1_000, leaseMs: 2_000 })).toThrow(RangeError);
     expect(() => make({ leaseMs: 0 })).toThrow(RangeError);

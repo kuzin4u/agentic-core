@@ -1,5 +1,5 @@
 import { HoldError, type Account, type AsyncHoldLedger, type Hold, type HoldState } from "./holds.js";
-import { units } from "./holds-input.js";
+import { instant, units } from "./holds-input.js";
 import type { Money } from "./money.js";
 import type { SqlClient } from "./sql.js";
 
@@ -26,17 +26,21 @@ const toHold = (r: HoldRow): Hold => ({
   released: int(r.released), state: r.state as HoldState, expires_at: r.expires_at === null ? null : int(r.expires_at),
 });
 
-/** Номер строки из id удержания; чужой формат — UNKNOWN_HOLD. */
+const BIGINT_MAX = 2n ** 63n - 1n;
+
+/** Номер строки из id удержания; чужой формат и номер вне bigint — UNKNOWN_HOLD, как у HoldLedger. */
 function seqOf(holdId: string): string {
   const m = /^HLD-([1-9]\d{0,18})$/.exec(holdId);
-  if (!m) throw new HoldError("UNKNOWN_HOLD");
+  if (!m || BigInt(m[1]!) > BIGINT_MAX) throw new HoldError("UNKNOWN_HOLD");
   return m[1]!;
 }
 
 /** Удержания в таблицах core_hold_accounts и core_holds (sql/002_holds.sql, К6 п. 10).
  *  Каждая операция — одна SQL-команда: условие по остатку и изменение счёта и удержания — в одном операторе,
  *  под блокировкой строки. Если оператор ничего не изменил, код ошибки определяется чтением — тем же порядком
- *  проверок, что у HoldLedger; если по чтению операция теперь прошла бы (остаток освободился), оператор повторяется. */
+ *  проверок, что у HoldLedger; если по чтению операция теперь прошла бы (остаток освободился), оператор повторяется.
+ *  client — пул или соединение в autocommit, не клиент внутри транзакции потребителя: ошибка повтора ref (23505)
+ *  прервала бы его транзакцию, и чтение прежнего удержания упало бы вместо идемпотентного ответа. */
 export class PgHoldLedger implements AsyncHoldLedger {
   constructor(private client: SqlClient) {}
 
@@ -83,6 +87,7 @@ export class PgHoldLedger implements AsyncHoldLedger {
    *  Повтор ref одновременно — нарушение UNIQUE(ref) откатывает оператор целиком, затем — чтение прежнего удержания. */
   async reserve(account: string, money: Money, ref: string, expires_at: number | null = null): Promise<Hold> {
     const amount = units(money, 1);
+    instant(expires_at, true, "expires_at");
     for (let i = 0; i < ATTEMPTS; i++) {
       try {
         const r = await this.client.query<HoldRow>(
@@ -175,6 +180,7 @@ export class PgHoldLedger implements AsyncHoldLedger {
 
   /** Освобождение всех истёкших открытых удержаний на момент now — одним оператором; строки блокируются по порядку seq. */
   async expire(now: number): Promise<Hold[]> {
+    instant(now, false, "now");
     const r = await this.client.query<HoldRow>(
       `WITH o AS (
          SELECT seq, account, amount - committed - released AS open FROM core_holds

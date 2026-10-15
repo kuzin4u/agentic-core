@@ -83,6 +83,9 @@ describe("удержания: резерв → закрепление → осв
     expect(() => L.commit(L.get(L.reserve("A", R(1), "r3").id).id, { amount: 1, currency: "rub" })).toThrowError(/BAD_CURRENCY/);
     expect(() => L.reserve("A", { amount: 0, currency: "RUB" }, "r0")).toThrowError(/BAD_AMOUNT/);
     expect(L.get(L.reserve("A", { amount: 1, currency: "RUB" }, "r2").id).currency).toBe("RUB");
+    // срок и момент — безопасные целые мс (/audit № 4): иначе RangeError, как на PG
+    expect(() => L.reserve("A", R(1), "r4", 1.5)).toThrow(RangeError);
+    expect(() => L.expire(NaN)).toThrow(RangeError);
   });
 });
 

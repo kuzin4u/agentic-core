@@ -67,6 +67,9 @@ describe.skipIf(!DATABASE_URL)("PostgreSQL: удержания", () => {
   it("порядок кодов как у HoldLedger: неизвестное, закрытое, неверная сумма и валюта", async () => {
     expect(await code(L().get("HLD-999999"))).toBe("UNKNOWN_HOLD");
     expect(await code(L().get("hold-1"))).toBe("UNKNOWN_HOLD");
+    expect(await code(L().get("HLD-" + "9".repeat(19)))).toBe("UNKNOWN_HOLD"); // номер вне bigint (/audit № 3)
+    expect(await code(L().reserve("nope", R(1), "n-0", 1.5))).toBe("RangeError"); // /audit № 4
+    expect(await code(L().expire(NaN))).toBe("RangeError");
     expect(await code(L().reserve("nope", R(1), "n-1"))).toBe("UNKNOWN_ACCOUNT");
     await L().openAccount("ord", R(100));
     const h = await L().reserve("ord", R(10), "ord-1");

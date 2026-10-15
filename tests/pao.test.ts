@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { execFileSync } from "node:child_process";
 import { newEd25519Signer, sha256Hex } from "../src/index.js";
@@ -32,8 +33,12 @@ async function setup(stubOpts: Partial<PaoStubOptions> = {}, clientOpts: Partial
 /** Разбор длинного входа в worker (П5.2): ждать не дольше budgetMs после загрузки модулей, затем terminate().
  *  Синхронный сверхлинейный цикл таймаут vitest не прерывает — без worker он повесил бы CI. */
 function linearInWorker(kind: "baseUrl" | "retryAfter", n: number, budgetMs = 2000): Promise<unknown> {
-  for (const [src, out] of [["src/pao/client.ts", "dist/src/pao/client.js"], ["src/index.ts", "dist/src/index.js"]] as const)
+  // каждый src/**/*.ts — не новее своего dist/src/**/*.js (без pretest dist мог устареть)
+  for (const f of readdirSync("src", { recursive: true }) as string[]) {
+    if (!f.endsWith(".ts")) continue;
+    const src = join("src", f), out = join("dist", "src", f.replace(/\.ts$/, ".js"));
     if ((statSync(out, { throwIfNoEntry: false })?.mtimeMs ?? 0) < statSync(src).mtimeMs) throw new Error(`${out} старше ${src}: npm run build (в npm test — pretest)`);
+  }
   return new Promise((resolve, reject) => {
     const w = new Worker(new URL("./linear-worker.mjs", import.meta.url));
     let timer: ReturnType<typeof setTimeout> | undefined;

@@ -36,6 +36,7 @@ export function nonceContract(make: MakeNonces) {
   it("retainMs меньше 2 × skewSec или не положительное — RangeError", () => {
     expect(() => make({ retainMs: 2 * SKEW * 1000 - 1, skewSec: SKEW })).toThrow(RangeError);
     expect(() => make({ retainMs: 0 })).toThrow(RangeError);
+    for (const skewSec of [NaN, -1, 0]) expect(() => make({ retainMs: 600_000, skewSec })).toThrow(RangeError); // /audit № 5
     expect(() => make({ retainMs: 2 * SKEW * 1000, skewSec: SKEW })).not.toThrow();
   });
 

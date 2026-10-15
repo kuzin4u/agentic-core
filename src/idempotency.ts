@@ -66,7 +66,9 @@ export class AsyncMemoryIdempotencyStore<R = unknown> implements AsyncIdempotenc
       if (this.rows.get(key)?.token === token) this.rows.delete(key);
       throw e;
     }
-    if (this.rows.get(key)?.token === token) this.rows.set(key, { bodyHash, state: "DONE", token, result: canonicalJson(result ?? null), at: this.o.now() });
-    return { result, replayed: false };
+    const stored = canonicalJson(result ?? null);
+    if (this.rows.get(key)?.token === token) this.rows.set(key, { bodyHash, state: "DONE", token, result: stored, at: this.o.now() });
+    // первый ответ — тот же разбор канонического JSON, что и повтор: undefined → null, поля undefined отброшены
+    return { result: JSON.parse(stored) as R, replayed: false };
   }
 }

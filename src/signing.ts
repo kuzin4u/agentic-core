@@ -138,7 +138,7 @@ export interface NonceStoreOptions {
   now?: () => number;
 }
 
-export class MemoryNonceStore implements AsyncNonceStore {
+export class AsyncMemoryNonceStore implements AsyncNonceStore {
   private rows = new Map<string, number>();
   private o: { retainMs: number; now: () => number };
   constructor(opts: NonceStoreOptions) { this.o = nonceStoreOptions(opts); }
