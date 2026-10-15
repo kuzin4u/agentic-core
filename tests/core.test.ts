@@ -4,7 +4,7 @@ import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import {
   canonicalJson, sha256Hex, HashChainJournal, MemoryJournalStore, HoldLedger, HoldError,
   IdempotencyStore, IdempotencyConflict, newEd25519Signer, signRequest, verifyRequest, ed25519Verifier,
-  Outbox, Inbox, splitByWeights,
+  Outbox, Inbox, splitMoney,
 } from "../src/index.js";
 import { decodePoint, timesEight, isIdentity, isWeakEd25519 } from "../src/ed25519.js";
 
@@ -206,8 +206,8 @@ describe("события", () => {
 });
 
 describe("деньги", () => {
-  it("распределение без потери копейки", () => {
-    const parts = splitByWeights(100001, [1, 1, 1]);
-    expect(parts.reduce((a, b) => a + b, 0)).toBe(100001);
+  it("распределение без потери единицы", () => {
+    const parts = splitMoney({ amount: 100001, currency: "RUB" }, [1, 1, 1]);
+    expect(parts.reduce((a, b) => a + b.amount, 0)).toBe(100001);
   });
 });
