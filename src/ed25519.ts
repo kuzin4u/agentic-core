@@ -1,5 +1,5 @@
 // Арифметика кривой Ed25519 для проверки открытых ключей (расхождение 12).
-// Внутренний модуль: index.ts реэкспортирует только isWeakEd25519 (К10); decodePoint, timesEight, isIdentity — внутренние.
+// Внутренний модуль: index.ts реэкспортирует только isWeakEd25519 (К10); decodePoint, timesEight, isIdentity, ed25519SpkiPoint — внутренние.
 
 // Кривая Ed25519 (RFC 8032 §5.1): p = 2^255 − 19, d = −121665/121666, a = −1.
 const P = 2n ** 255n - 19n;
@@ -60,3 +60,15 @@ export function isWeakEd25519(x: Buffer): boolean {
   return !a || isIdentity(timesEight(a));
 }
 
+// DER SubjectPublicKeyInfo Ed25519 (RFC 8410): 12 байт заголовка + 32 байта точки.
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+/** Строгий разбор открытого ключа: канонический base64 (RFC 4648 §3.5), DER ровно 44 байта, заголовок SPKI Ed25519,
+ *  точка не слабая. Возвращает 32 байта точки или null. Общий для ed25519Verifier и регистрации ключа в PaoStub. */
+export function ed25519SpkiPoint(publicKey: string): Buffer | null {
+  const der = Buffer.from(publicKey, "base64");
+  if (der.length !== 44 || der.toString("base64") !== publicKey) return null;
+  if (!der.subarray(0, 12).equals(ED25519_SPKI_PREFIX)) return null;
+  const x = der.subarray(12);
+  return isWeakEd25519(x) ? null : x;
+}

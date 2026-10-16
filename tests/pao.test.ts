@@ -380,3 +380,94 @@ describe("ПАО: заглушка по РП23 (порядок проверки,
     expect(stub.violations).toEqual([]);
   });
 });
+
+describe("ПАО: заглушка — регистрация ключа POST /pao/v1/agent/keys (РП23 п. 2–4, доп. 1, 6, 7; РП31 п. 2)", () => {
+  const SPKI = "302a300506032b6570032100";
+  const spki = (x: Buffer) => Buffer.concat([Buffer.from(SPKI, "hex"), x]).toString("base64");
+  // RFC 8037 прил. A.2–A.3: открытый ключ и его отпечаток RFC 7638
+  const RFC_X = Buffer.from("11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo", "base64url");
+  const RFC_KID = "kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k";
+  const NOW = Date.parse("2026-10-16T12:00:00Z");
+  const DAY = 24 * 3600 * 1000;
+  const OTHER = "nspk:agent:other-01:v1";
+
+  async function setupKeys(extra: PaoStubOptions["agents"][number]["keys"] = [], other: PaoStubOptions["agents"][number]["keys"] = []) {
+    const { signer, publicKey } = newEd25519Signer("k-1");
+    stub = new PaoStub({
+      now: () => NOW,
+      agents: [
+        { agentCode: AGENT, keys: [{ kid: "k-1", alg: "ed25519", publicKey, validTo: new Date(NOW + 60 * DAY).toISOString() }, ...extra] },
+        { agentCode: OTHER, keys: other },
+      ],
+    });
+    const baseUrl = await stub.start();
+    const clientWith = (s: Signer) => new PaoClient({ baseUrl, agentCode: AGENT, signer: s, now: () => new Date(NOW) });
+    return { stub, client: clientWith(signer), clientWith, me: stub["opts"].agents[0]! };
+  }
+
+  it("kid — отпечаток RFC 7638 (эталон RFC 8037 прил. A.3); сроки нового ключа и сокращение прежнего; новый ключ подписывает", async () => {
+    const { client, clientWith, stub } = await setupKeys();
+    const key = await client.call("POST /pao/v1/agent/keys", { body: { alg: "ed25519", public_key: spki(RFC_X) }, idempotencyKey: "ik-k1" });
+    expect(key).toEqual({
+      kid: RFC_KID, alg: "ed25519", public_key: spki(RFC_X), status: "ACTIVE",
+      valid_from: new Date(NOW).toISOString(), valid_to: new Date(NOW + 90 * DAY).toISOString(),
+    });
+    expect(stub.calls.at(-1)).toMatchObject({ method: "POST", path: "/pao/v1/agent/keys", status: 201, kid: "k-1" });
+    const fresh = newEd25519Signer("tmp");
+    const k2 = await client.call("POST /pao/v1/agent/keys", { body: { alg: "ed25519", public_key: fresh.publicKey }, idempotencyKey: "ik-k2" });
+    const me = await clientWith({ ...fresh.signer, kid: k2.kid }).call("GET /pao/v1/agent", {});
+    // прежние действующие — до now + key_overlap_days; уже более короткий срок не продлевается
+    const overlap = new Date(NOW + 7 * DAY).toISOString();
+    expect(me.keys!.map((k) => [k.kid, k.valid_to])).toEqual([["k-1", overlap], [RFC_KID, overlap], [k2.kid, new Date(NOW + 90 * DAY).toISOString()]]);
+    expect(stub.violations).toEqual([]);
+  });
+
+  it("свой действующий ключ повторно (другой Idempotency-Key) — 201 тот же Key, ключей и сроков не прибавилось (РП23 доп. 7)", async () => {
+    const { client, me } = await setupKeys();
+    const body = { alg: "ed25519", public_key: spki(RFC_X) };
+    const first = await client.call("POST /pao/v1/agent/keys", { body, idempotencyKey: "ik-a" });
+    const before = structuredClone(me.keys);
+    const again = await client.call("POST /pao/v1/agent/keys", { body, idempotencyKey: "ik-b" });
+    expect(again).toEqual(first);
+    expect(me.keys).toEqual(before);
+    expect(stub!.calls.map((c) => [c.status, c.replayed])).toEqual([[201, false], [201, false]]);
+  });
+
+  const weak = Buffer.alloc(32); weak[0] = 1; // нейтраль (0, 1): малого порядка
+  const rfc = spki(RFC_X);
+  it.each<[string, Record<string, unknown>]>([
+    ["alg не из перечня контура", { alg: "gost-2012", public_key: rfc }],
+    ["неканоническая запись base64 (лишние биты перед «=»)", { alg: "ed25519", public_key: rfc.slice(0, -2) + "p=" }],
+    ["без дополнения", { alg: "ed25519", public_key: rfc.replace(/=+$/, "") }],
+    ["перевод строки", { alg: "ed25519", public_key: rfc.slice(0, 20) + "\n" + rfc.slice(20) }],
+    ["алфавит base64url", { alg: "ed25519", public_key: Buffer.from(rfc, "base64").toString("base64url") }],
+    ["не DER SPKI Ed25519", { alg: "ed25519", public_key: Buffer.alloc(44, 7).toString("base64") }],
+    ["слабый ключ (точка малого порядка)", { alg: "ed25519", public_key: spki(weak) }],
+  ])("KEY_INVALID 422 после одного обращения: %s", async (_name, body) => {
+    const { client, me } = await setupKeys();
+    const e = await rejected(client.call("POST /pao/v1/agent/keys", { body: body as never, idempotencyKey: "ik-x" }));
+    expect([e.status, e.code, e.retry, e.attempts]).toEqual([422, "KEY_INVALID", "after_fix", 1]);
+    expect(me.keys).toHaveLength(1);
+  });
+
+  it.each([
+    ["ключ другого агента", [], [{ kid: RFC_KID, alg: "ed25519", publicKey: rfc }]],
+    ["свой отозванный", [{ kid: RFC_KID, alg: "ed25519", publicKey: rfc, status: "REVOKED" as const }], []],
+    ["свой истёкший", [{ kid: RFC_KID, alg: "ed25519", publicKey: rfc, validTo: new Date(NOW - 1).toISOString() }], []],
+  ])("KEY_INVALID: %s — уже зарегистрирован (РП23 п. 3, доп. 7)", async (_name, own, other) => {
+    const { client, me } = await setupKeys(own, other);
+    const e = await rejected(client.call("POST /pao/v1/agent/keys", { body: { alg: "ed25519", public_key: rfc }, idempotencyKey: "ik-t" }));
+    expect([e.status, e.code]).toEqual([422, "KEY_INVALID"]);
+    expect(me.keys).toHaveLength(1 + own.length);
+  });
+
+  it("нет public_key — REQUEST_INVALID 400; приостановленному — 403 AGENT_SUSPENDED, ключ не добавлен", async () => {
+    const { client, me } = await setupKeys();
+    const e = await rejected(client.call("POST /pao/v1/agent/keys", { body: { alg: "ed25519" } as never, idempotencyKey: "ik-r" }));
+    expect([e.status, e.code]).toEqual([400, "REQUEST_INVALID"]);
+    me.status = "SUSPENDED";
+    const s = await rejected(client.call("POST /pao/v1/agent/keys", { body: { alg: "ed25519", public_key: rfc }, idempotencyKey: "ik-s" }));
+    expect([s.status, s.code]).toEqual([403, "AGENT_SUSPENDED"]);
+    expect(me.keys).toHaveLength(1);
+  });
+});

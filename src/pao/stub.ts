@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { IdempotencyConflict, IdempotencyStore } from "../idempotency.js";
 import { verifyRequest } from "../signing.js";
+import { ed25519SpkiPoint } from "../ed25519.js";
 import { PAO_ERRORS, PAO_OPERATIONS, type Configuration, type ErrorCode, type Key, type Error as PaoErrorBody, type PaoOperationKey, type PaoOperations } from "./types.js";
 import { validatePao } from "./validate.js";
 import { routePattern } from "./route.js";
@@ -19,7 +21,8 @@ export interface PaoStubKey {
 }
 
 /** Агент в заглушке; поля `operator`, `class`, `level`, `rateLimitPerMin` уходят в `GET /pao/v1/agent` как есть.
- *  Статус и ключи читаются на каждом обращении: тест может менять их между вызовами. */
+ *  Статус и ключи читаются на каждом обращении: тест может менять их между вызовами. `POST /pao/v1/agent/keys`
+ *  без своего обработчика дописывает ключ в `keys` этого объекта и сокращает `validTo` прежних. */
 export interface PaoStubAgent {
   agentCode: string;
   status?: "ACTIVE" | "SUSPENDED" | "EXCLUDED";
@@ -51,6 +54,10 @@ export interface PaoStubOptions {
   handlers?: { [K in PaoOperationKey]?: PaoStubHandler<K> };
   configuration?: Configuration;
   skewSec?: number;
+  /** Срок нового ключа при `POST /pao/v1/agent/keys`, дней (`key_ttl_days`, РП23 п. 4). По умолчанию 90. */
+  keyTtlDays?: number;
+  /** Перекрытие: прежним действующим ключам `valid_to` сокращается до now + столько дней (`key_overlap_days`). По умолчанию 7. */
+  keyOverlapDays?: number;
   /** Retry-After у отказов 429 и 503, если в отказе не задан свой; секунд. По умолчанию 1. */
   retryAfterSec?: number;
   now?: () => number;
@@ -188,7 +195,7 @@ export class PaoStub {
 
     const run = (): { status: number; body: unknown } | { error: PaoStubError } => {
       const handler = this.opts.handlers?.[op] as PaoStubHandler<PaoOperationKey> | undefined;
-      const r = handler ? handler({ agentCode, path: pathParams, query, body: body as never }) : this.defaultReply(op, agentCode);
+      const r = handler ? handler({ agentCode, path: pathParams, query, body: body as never }) : this.defaultReply(op, agentCode, body);
       if ("error" in r) return r;
       if (spec.response !== undefined) this.violations.push(...validatePao(spec.response, r.body, "$").map((m) => `${op} ответ ${m}`));
       return { status: r.status ?? spec.success, body: r.body };
@@ -215,7 +222,7 @@ export class PaoStub {
     }
   }
 
-  private defaultReply(op: PaoOperationKey, agentCode: string): PaoStubReply<PaoOperationKey> {
+  private defaultReply(op: PaoOperationKey, agentCode: string, body: unknown): PaoStubReply<PaoOperationKey> {
     if (op === "GET /.well-known/pao-configuration") {
       return { body: this.opts.configuration ?? { versions: ["v1"], algorithms: ["ed25519"], platform_keys: [], endpoints: {} } };
     }
@@ -236,8 +243,39 @@ export class PaoStub {
         },
       };
     }
+    if (op === "POST /pao/v1/agent/keys") return this.registerKey(agentCode, body);
     this.violations.push(`${op}: нет обработчика в заглушке`);
     return { error: { code: "UPSTREAM_UNAVAILABLE", message: "нет обработчика в заглушке", status: 500, retry: "never" } };
+  }
+
+  /** Регистрация ключа по РП23 п. 2–4, доп. 1, 6, 7 и РП31 п. 2. Статус агента уже проверен: сюда доходит только ACTIVE. */
+  private registerKey(agentCode: string, body: unknown): PaoStubReply<"POST /pao/v1/agent/keys"> {
+    const b = (typeof body === "object" && body !== null ? body : {}) as { alg?: unknown; public_key?: unknown };
+    if (typeof b.alg !== "string" || typeof b.public_key !== "string") return { error: { code: "REQUEST_INVALID" } };
+    const algorithms = this.opts.configuration?.algorithms ?? ["ed25519"];
+    // Разбор есть только для ed25519; прочий alg из конфигурации — тоже KEY_INVALID (ГОСТ — после точки расширения, РП5).
+    const x = b.alg === "ed25519" && algorithms.includes(b.alg) ? ed25519SpkiPoint(b.public_key) : null;
+    // Причина агенту не раскрывается: один код на alg, разбор, слабый ключ и повтор (РП31 п. 2).
+    if (!x) return { error: { code: "KEY_INVALID" } };
+    const kid = jwkThumbprint(x);
+    const now = this.now();
+    const same = (k: PaoStubKey) => k.kid === kid || k.publicKey === b.public_key;
+    const me = this.opts.agents.find((a) => a.agentCode === agentCode)!;
+    const own = me.keys.find(same);
+    // Свой действующий ключ повторно — тот же Key, 201, без новой записи и без повторного сокращения сроков (РП23 доп. 7).
+    if (own) return keyStatus(own, now) === "ACTIVE" ? { status: 201, body: keyBody(own) } : { error: { code: "KEY_INVALID" } };
+    if (this.opts.agents.some((a) => a.keys.some(same))) return { error: { code: "KEY_INVALID" } };
+    const day = 24 * 3600 * 1000;
+    const overlapEnd = now + (this.opts.keyOverlapDays ?? 7) * day;
+    for (const k of me.keys) {
+      if (keyStatus(k, now) === "ACTIVE" && (k.validTo === undefined || Date.parse(k.validTo) > overlapEnd)) k.validTo = new Date(overlapEnd).toISOString();
+    }
+    const key: PaoStubKey = {
+      kid, alg: b.alg, publicKey: b.public_key, status: "ACTIVE",
+      validFrom: new Date(now).toISOString(), validTo: new Date(now + (this.opts.keyTtlDays ?? 90) * day).toISOString(),
+    };
+    me.keys.push(key);
+    return { status: 201, body: keyBody(key) };
   }
 
   private now(): number {
@@ -263,4 +301,10 @@ function keyBody(k: PaoStubKey): Key {
     ...(k.validFrom !== undefined && { valid_from: k.validFrom }),
     ...(k.validTo !== undefined && { valid_to: k.validTo }),
   };
+}
+
+/** Отпечаток JWK по RFC 7638 для Ed25519 (RFC 8037): SHA-256 от {"crv","kty","x"}, base64url без дополнения (РП23 п. 3). */
+function jwkThumbprint(x: Buffer): string {
+  const jwk = `{"crv":"Ed25519","kty":"OKP","x":"${x.toString("base64url")}"}`;
+  return createHash("sha256").update(jwk).digest("base64url");
 }
