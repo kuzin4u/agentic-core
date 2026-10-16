@@ -60,7 +60,7 @@ describe("ПАО: спецификация и типы", () => {
     const sha = sha256Hex(readFileSync("spec/agent-protocol.yaml"));
     expect(sha).toBe(PAO_SPEC_SHA256);
     expect(readFileSync("spec/SOURCE.md", "utf8")).toContain(sha);
-    expect(PAO_VERSION).toBe("1.2.0");
+    expect(PAO_VERSION).toBe("1.3.0");
     execFileSync(process.execPath, ["scripts/gen-pao.mjs", "--check"], { stdio: "pipe" });
   });
 
@@ -147,10 +147,23 @@ describe("ПАО: клиент против заглушки", () => {
     expect(stub.calls).toHaveLength(1);
   });
 
+  it.each([
+    ["POST /pao/v1/mandates", "REQUEST_INVALID", 400],
+    ["POST /pao/v1/agent/keys", "REQUEST_INVALID", 400],
+    ["POST /pao/v1/agent/keys", "KEY_INVALID", 422],
+  ] as const)("ПАО 1.3.0 (РП31): %s, %s → %i after_fix, без повтора", async (op, code, status) => {
+    expect(PAO_ERRORS[code]).toMatchObject({ http: status, retry: "after_fix" });
+    const { client, stub } = await setup();
+    stub.fail(op, { code });
+    const e = await rejected(client.call(op, { body: {} as never }));
+    expect([e.status, e.code, e.retry, e.attempts, e.body?.retry]).toEqual([status, code, "after_fix", 1, "after_fix"]);
+    expect(stub.calls).toHaveLength(1);
+  });
+
   it("заглушка отвечает по x-pao-errors: HTTP-статус и retry каждого кода, Retry-After у 429 и 503 (РП16)", async () => {
     const { client, stub } = await setup({ retryAfterSec: 7 }, { maxAttempts: 1 });
     const codes = Object.keys(PAO_ERRORS) as ErrorCode[];
-    expect(codes).toHaveLength(18);
+    expect(codes).toHaveLength(20);
     for (const code of codes) {
       stub.fail("POST /pao/v1/mandates", { code });
       const e = await rejected(client.call("POST /pao/v1/mandates", { body: REQ }));
