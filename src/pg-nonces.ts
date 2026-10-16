@@ -10,14 +10,11 @@ export class PgNonceStore implements AsyncNonceStore {
 
   async seen(nonce: string): Promise<boolean> {
     if (!nonce) return true;
-    // ПОЛОМКА П2.1 (откатывается следующим коммитом): проверка и запись двумя командами.
-    const hit = await this.client.query("SELECT 1 FROM core_nonces WHERE scope = $1 AND nonce = $2", [this.scope, nonce]);
-    if (hit.rows.length > 0) return true;
-    await this.client.query(
-      "INSERT INTO core_nonces (scope, nonce, at) VALUES ($1, $2, $3::bigint) ON CONFLICT DO NOTHING",
+    const r = await this.client.query(
+      "INSERT INTO core_nonces (scope, nonce, at) VALUES ($1, $2, $3::bigint) ON CONFLICT DO NOTHING RETURNING 1 AS fresh",
       [this.scope, nonce, this.o.now()],
     );
-    return false;
+    return r.rows.length === 0;
   }
 
   async purge(): Promise<number> {
