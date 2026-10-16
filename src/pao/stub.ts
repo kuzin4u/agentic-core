@@ -2,15 +2,36 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { IdempotencyConflict, IdempotencyStore } from "../idempotency.js";
 import { verifyRequest } from "../signing.js";
-import { PAO_ERRORS, PAO_OPERATIONS, type Configuration, type ErrorCode, type Error as PaoErrorBody, type PaoOperationKey, type PaoOperations } from "./types.js";
+import { PAO_ERRORS, PAO_OPERATIONS, type Configuration, type ErrorCode, type Key, type Error as PaoErrorBody, type PaoOperationKey, type PaoOperations } from "./types.js";
 import { validatePao } from "./validate.js";
 import { routePattern } from "./route.js";
 
+/** Ключ агента в заглушке. `status` по умолчанию ACTIVE; ключ с наступившим `validTo` — EXPIRED на момент проверки (РП23 п. 4). */
+export interface PaoStubKey {
+  kid: string;
+  alg: string;
+  publicKey: string;
+  status?: "ACTIVE" | "REVOKED" | "EXPIRED";
+  /** ISO 8601 */
+  validFrom?: string;
+  /** ISO 8601 */
+  validTo?: string;
+}
+
+/** Агент в заглушке; поля `operator`, `class`, `level`, `rateLimitPerMin` уходят в `GET /pao/v1/agent` как есть.
+ *  Статус и ключи читаются на каждом обращении: тест может менять их между вызовами. */
 export interface PaoStubAgent {
   agentCode: string;
-  status?: "ACTIVE" | "SUSPENDED";
-  keys: { kid: string; alg: string; publicKey: string; status: "ACTIVE" | "REVOKED" | "EXPIRED" }[];
+  status?: "ACTIVE" | "SUSPENDED" | "EXCLUDED";
+  operator?: string;
+  class?: "BUYER" | "SELLER" | "SURFACE" | "SERVICE";
+  level?: number;
+  rateLimitPerMin?: number;
+  keys: PaoStubKey[];
 }
+
+/** Методы, доступные агенту в статусе SUSPENDED и EXCLUDED: по ним он узнаёт свой статус (РП23 п. 6.3). */
+const STATUS_EXEMPT: ReadonlySet<PaoOperationKey> = new Set(["GET /pao/v1/agent"]);
 
 /** Отказ, который заглушка вернёт вместо ответа. Статус и `retry` по умолчанию — из x-pao-errors спецификации (`PAO_ERRORS`).
  *  `retryAfterSec` — заголовок Retry-After; у 429 и 503 по умолчанию `PaoStubOptions.retryAfterSec` (РП16). */
@@ -37,10 +58,22 @@ export interface PaoStubOptions {
   log?: (message: string, error: unknown) => void;
 }
 
-export interface PaoStubCall { op: PaoOperationKey | undefined; status: number; nonce?: string; idempotencyKey?: string; replayed: boolean }
+/** Журнал обращений: `code` — код отказа ПАО (у успешного ответа нет), `kid` — keyid из Signature-Input, если он есть. */
+export interface PaoStubCall {
+  op: PaoOperationKey | undefined;
+  method: string;
+  path: string;
+  status: number;
+  code?: ErrorCode;
+  kid?: string;
+  nonce?: string;
+  idempotencyKey?: string;
+  replayed: boolean;
+}
 
 /** Сервер-заглушка ПАО для контрактных тестов: проверяет подпись, окно времени, nonce, Idempotency-Key
- *  и тела по схемам спецификации; ответы — от обработчиков теста. Нарушения схем копятся в `violations`. */
+ *  и тела по схемам спецификации; ответы — от обработчиков теста. Нарушения схем копятся в `violations`.
+ *  Порядок проверки — РП23 п. 6: агент → подпись → статус агента. */
 export class PaoStub {
   readonly calls: PaoStubCall[] = [];
   readonly violations: string[] = [];
@@ -94,7 +127,8 @@ export class PaoStub {
     const headers = Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : (v ?? "")]));
     const nonce = headers["x-nonce"];
     const idempotencyKey = headers["idempotency-key"] || undefined;
-    const call: PaoStubCall = { op: undefined, status: 0, nonce, idempotencyKey, replayed: false };
+    const kid = /;keyid="([^"]+)"/.exec(headers["signature-input"] ?? "")?.[1];
+    const call: PaoStubCall = { op: undefined, method, path: url.pathname, status: 0, kid, nonce, idempotencyKey, replayed: false };
     this.calls.push(call);
 
     const route = this.routes.find((r) => r.spec.method === method && r.re.test(url.pathname));
@@ -113,6 +147,7 @@ export class PaoStub {
       const { http, retry } = PAO_ERRORS[e.code];
       const status = e.status ?? http;
       const body: PaoErrorBody = { code: e.code, message: e.message ?? e.code, retry: e.retry ?? retry };
+      call.code = e.code;
       const after = e.retryAfterSec ?? (status === 429 || status === 503 ? (this.opts.retryAfterSec ?? 1) : undefined);
       return reply(status, body, after !== undefined ? { "retry-after": String(after) } : undefined);
     };
@@ -122,17 +157,23 @@ export class PaoStub {
       agentCode = headers["x-agent-code"] ?? "";
       const agent = this.opts.agents.find((a) => a.agentCode === agentCode);
       if (!agent) return fail({ code: "AGENT_UNKNOWN" });
-      if (agent.status === "SUSPENDED") return fail({ code: "AGENT_SUSPENDED" });
+      const now = this.now();
       const v = verifyRequest(
         { method, path: url.pathname, query: url.search.replace(/^\?/, ""), headers, body: text },
-        (kid) => agent.keys.find((k) => k.kid === kid),
+        (k) => {
+          const key = agent.keys.find((x) => x.kid === k);
+          return key && { alg: key.alg, publicKey: key.publicKey, status: keyStatus(key, now) };
+        },
         {
-          now: (this.opts.now ?? Date.now)(),
+          now,
           skewSec: this.opts.skewSec ?? 300,
-          seenNonce: (n) => !n || this.nonces.has(`${agentCode} ${n}`) || (this.nonces.add(`${agentCode} ${n}`), false),
+          // Только проверка: nonce запоминается после успешной проверки подписи (РП23 п. 6.2).
+          seenNonce: (n) => !n || this.nonces.has(`${agentCode} ${n}`),
         },
       );
       if (!v.ok) return fail({ code: v.code });
+      this.nonces.add(`${agentCode} ${nonce}`);
+      if ((agent.status ?? "ACTIVE") !== "ACTIVE" && !STATUS_EXEMPT.has(op)) return fail({ code: "AGENT_SUSPENDED" });
     }
 
     const scripted = this.failures.get(op)?.shift();
@@ -180,11 +221,18 @@ export class PaoStub {
     }
     if (op === "GET /pao/v1/agent") {
       const a = this.opts.agents.find((x) => x.agentCode === agentCode)!;
+      const now = this.now();
+      // Как у Платформы: в ответе только действующие ключи; срок — на момент обращения.
+      const keys = a.keys.filter((k) => keyStatus(k, now) === "ACTIVE").map(keyBody);
       return {
         body: {
           agent_code: a.agentCode,
+          ...(a.operator !== undefined && { operator: a.operator }),
+          ...(a.class !== undefined && { class: a.class }),
+          ...(a.level !== undefined && { level: a.level }),
           status: a.status ?? "ACTIVE",
-          keys: a.keys.map((k) => ({ kid: k.kid, alg: k.alg, public_key: k.publicKey, status: k.status })),
+          keys,
+          ...(a.rateLimitPerMin !== undefined && { rate_limit_per_min: a.rateLimitPerMin }),
         },
       };
     }
@@ -192,9 +240,27 @@ export class PaoStub {
     return { error: { code: "UPSTREAM_UNAVAILABLE", message: "нет обработчика в заглушке", status: 500, retry: "never" } };
   }
 
+  private now(): number {
+    return (this.opts.now ?? Date.now)();
+  }
+
   private send(res: ServerResponse, status: number, body: unknown, extra?: Record<string, string>): void {
     const text = body === undefined ? "" : JSON.stringify(body);
     res.writeHead(status, { "content-type": "application/json", ...extra });
     res.end(text);
   }
+}
+
+function keyStatus(k: PaoStubKey, now: number): "ACTIVE" | "REVOKED" | "EXPIRED" {
+  const s = k.status ?? "ACTIVE";
+  if (s !== "ACTIVE") return s;
+  return k.validTo !== undefined && Date.parse(k.validTo) <= now ? "EXPIRED" : "ACTIVE";
+}
+
+function keyBody(k: PaoStubKey): Key {
+  return {
+    kid: k.kid, alg: k.alg, public_key: k.publicKey, status: "ACTIVE",
+    ...(k.validFrom !== undefined && { valid_from: k.validFrom }),
+    ...(k.validTo !== undefined && { valid_to: k.validTo }),
+  };
 }

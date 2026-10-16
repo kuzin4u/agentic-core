@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { execFileSync } from "node:child_process";
-import { newEd25519Signer, sha256Hex } from "../src/index.js";
+import { newEd25519Signer, sha256Hex, signRequest, type Signer } from "../src/index.js";
 import * as core from "../src/index.js";
 import {
   PaoClient, PaoCallError, PaoStub, PAO_ERRORS, PAO_SPEC_SHA256, PAO_VERSION, validatePao,
@@ -306,5 +306,77 @@ describe("ПАО: клиент против заглушки", () => {
       'GET /pao/v1/mandates/{id}/verify ответ $.valid_to: обязательное поле',
       'GET /pao/v1/mandates/{id}/verify ответ $.outcome: "MAYBE" вне перечня',
     ]);
+  });
+});
+
+describe("ПАО: заглушка по РП23 (порядок проверки, статус, ключи, журнал обращений)", () => {
+  /** Подписанное обращение в обход клиента: headers можно испортить до отправки. */
+  function signed(signer: Signer, method: string, path: string, nonce: string, body = "") {
+    const headers = { "x-agent-code": AGENT, "x-timestamp": new Date().toISOString().slice(0, 19) + "Z", "x-nonce": nonce };
+    return signRequest({ method, path, query: "", headers, body }, signer).headers;
+  }
+  const send = (baseUrl: string, method: string, path: string, headers: Record<string, string>, body?: string) =>
+    fetch(baseUrl + path, { method, headers: { ...headers, "content-type": "application/json" }, body });
+
+  it.each(["SUSPENDED", "EXCLUDED"] as const)("%s: GET /pao/v1/agent — 200 со статусом, остальное — 403 AGENT_SUSPENDED", async (status) => {
+    const { client, stub } = await setup({ handlers: { "POST /pao/v1/mandates": ({ body }) => ({ body: created(body) }) } });
+    stub["opts"].agents[0]!.status = status;
+    expect((await client.call("GET /pao/v1/agent", {})).status).toBe(status);
+    const e = await rejected(client.call("POST /pao/v1/mandates", { body: REQ, idempotencyKey: "ik-s" }));
+    expect([e.status, e.code, e.attempts]).toEqual([403, "AGENT_SUSPENDED", 1]);
+    expect(stub.calls.map((c) => [c.method, c.path, c.status, c.code])).toEqual([
+      ["GET", "/pao/v1/agent", 200, undefined],
+      ["POST", "/pao/v1/mandates", 403, "AGENT_SUSPENDED"],
+    ]);
+    expect(stub.violations).toEqual([]);
+  });
+
+  it("сначала подпись, потом статус: неподписанное и испорченное обращение приостановленного — 401, не 403", async () => {
+    const { stub, baseUrl } = await setup();
+    stub["opts"].agents[0]!.status = "SUSPENDED";
+    const unsigned = await send(baseUrl, "POST", "/pao/v1/mandates", { "x-agent-code": AGENT, "idempotency-key": "ik-u" }, JSON.stringify(REQ));
+    expect([unsigned.status, (await unsigned.json()).code]).toEqual([401, "SIGNATURE_INVALID"]);
+    const unknown = await send(baseUrl, "GET", "/pao/v1/agent", { "x-agent-code": "nspk:agent:nobody:v1" });
+    expect([unknown.status, (await unknown.json()).code]).toEqual([401, "AGENT_UNKNOWN"]);
+    expect(stub.calls.map((c) => [c.status, c.code])).toEqual([[401, "SIGNATURE_INVALID"], [401, "AGENT_UNKNOWN"]]);
+  });
+
+  it("nonce запоминается только после успешной проверки: испорченная подпись не занимает nonce, повтор удачного — 401", async () => {
+    const { signer, publicKey } = newEd25519Signer("k-n");
+    stub = new PaoStub({ agents: [{ agentCode: AGENT, keys: [{ kid: "k-n", alg: "ed25519", publicKey }] }] });
+    const baseUrl = await stub.start();
+    const h = signed(signer, "GET", "/pao/v1/agent", "nonce-1");
+    const bad = await send(baseUrl, "GET", "/pao/v1/agent", { ...h, signature: "sig1=:" + Buffer.alloc(64).toString("base64") + ":" });
+    expect(bad.status).toBe(401);
+    expect((await send(baseUrl, "GET", "/pao/v1/agent", h)).status).toBe(200);
+    expect((await send(baseUrl, "GET", "/pao/v1/agent", h)).status).toBe(401);
+    expect(stub.calls.map((c) => [c.status, c.kid, c.nonce])).toEqual([[401, "k-n", "nonce-1"], [200, "k-n", "nonce-1"], [401, "k-n", "nonce-1"]]);
+  });
+
+  it("GET /pao/v1/agent: operator, class, level, rate_limit_per_min; только действующие ключи со сроками", async () => {
+    const now = Date.parse("2026-10-16T12:00:00Z");
+    const { signer, publicKey } = newEd25519Signer("k-live");
+    const old = newEd25519Signer("k-old"), gone = newEd25519Signer("k-gone");
+    stub = new PaoStub({
+      now: () => now,
+      agents: [{
+        agentCode: AGENT, operator: "nspk:operator:op-1", class: "BUYER", level: 2, rateLimitPerMin: 60,
+        keys: [
+          { kid: "k-live", alg: "ed25519", publicKey, validFrom: "2026-10-01T00:00:00Z", validTo: "2026-12-30T00:00:00Z" },
+          { kid: "k-old", alg: "ed25519", publicKey: old.publicKey, validTo: "2026-10-16T12:00:00Z" },
+          { kid: "k-gone", alg: "ed25519", publicKey: gone.publicKey, status: "REVOKED" },
+        ],
+      }],
+    });
+    const baseUrl = await stub.start();
+    const clientAt = (s: Signer) => new PaoClient({ baseUrl, agentCode: AGENT, signer: s, now: () => new Date(now) });
+    expect(await clientAt(signer).call("GET /pao/v1/agent", {})).toEqual({
+      agent_code: AGENT, operator: "nspk:operator:op-1", class: "BUYER", level: 2, status: "ACTIVE", rate_limit_per_min: 60,
+      keys: [{ kid: "k-live", alg: "ed25519", public_key: publicKey, status: "ACTIVE", valid_from: "2026-10-01T00:00:00Z", valid_to: "2026-12-30T00:00:00Z" }],
+    });
+    // valid_to наступил — EXPIRED на момент проверки; в ПАО отдельного кода нет — AGENT_KEY_REVOKED (РП23 п. 6.2)
+    const e = await rejected(clientAt(old.signer).call("GET /pao/v1/agent", {}));
+    expect([e.status, e.code]).toEqual([401, "AGENT_KEY_REVOKED"]);
+    expect(stub.violations).toEqual([]);
   });
 });
