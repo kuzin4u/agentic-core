@@ -4,7 +4,7 @@ import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import {
   canonicalJson, sha256Hex, HashChainJournal, MemoryJournalStore, HoldLedger, HoldError,
   IdempotencyStore, IdempotencyConflict, newEd25519Signer, signRequest, verifyRequest, ed25519Verifier,
-  Outbox, Inbox, splitMoney,
+  Outbox, Inbox, splitMoney, AsyncMemoryIdempotencyStore,
 } from "../src/index.js";
 import { decodePoint, timesEight, isIdentity, isWeakEd25519 } from "../src/ed25519.js";
 
@@ -16,6 +16,58 @@ describe("canonical", () => {
       expect(canonicalJson(v.input)).toBe(v.canonical);
       expect(sha256Hex(canonicalJson(v.input))).toBe(v.sha256);
     }
+  });
+
+  // К12: значения вне JSON — TypeError с кодом, а не молчаливое {} или неверный JSON.
+  class Point { constructor(readonly x = 1) {} }
+  const cyclic: Record<string, unknown> = {};
+  cyclic.self = cyclic;
+  const cyclicArr: unknown[] = [];
+  cyclicArr.push({ back: cyclicArr });
+  it.each<[string, unknown, string]>([
+    ["NaN", NaN, "NON_FINITE_NUMBER"],
+    ["Infinity", Infinity, "NON_FINITE_NUMBER"],
+    ["-Infinity в поле", { a: -Infinity }, "NON_FINITE_NUMBER"],
+    ["Date", new Date(0), "NON_PLAIN_OBJECT"],
+    ["Map", new Map([["a", 1]]), "NON_PLAIN_OBJECT"],
+    ["Set в массиве", [new Set([1])], "NON_PLAIN_OBJECT"],
+    ["экземпляр класса в поле", { p: new Point() }, "NON_PLAIN_OBJECT"],
+    ["Buffer", Buffer.from("a"), "NON_PLAIN_OBJECT"],
+    ["Uint8Array", new Uint8Array(1), "NON_PLAIN_OBJECT"],
+    ["RegExp", /a/, "NON_PLAIN_OBJECT"],
+    ["обёртка String", new String("a"), "NON_PLAIN_OBJECT"],
+    ["Error", new Error("e"), "NON_PLAIN_OBJECT"],
+    ["undefined", undefined, "NON_JSON_VALUE"],
+    ["undefined в массиве", [undefined], "NON_JSON_VALUE"],
+    ["дыра в массиве", [, 1], "NON_JSON_VALUE"],
+    ["функция в поле", { f: () => 1 }, "NON_JSON_VALUE"],
+    ["функция в массиве", [() => 1], "NON_JSON_VALUE"],
+    ["symbol в поле", { s: Symbol("s") }, "NON_JSON_VALUE"],
+    ["bigint", 1n, "NON_JSON_VALUE"],
+    ["объект ссылается на себя", cyclic, "NON_JSON_VALUE"],
+    ["цикл через массив", cyclicArr, "NON_JSON_VALUE"],
+  ])("%s — TypeError", (_name, value, code) => {
+    expect(() => canonicalJson(value)).toThrow(TypeError);
+    expect(() => canonicalJson(value)).toThrow(code);
+  });
+
+  it("допускает: поле undefined пропускается, объект без прототипа, общая ссылка в разных ветвях, -0 как 0", () => {
+    expect(canonicalJson({ b: undefined, a: 1 })).toBe('{"a":1}');
+    const bare = Object.assign(Object.create(null) as Record<string, unknown>, { z: 1, a: [true, null, "x"] });
+    expect(canonicalJson(bare)).toBe('{"a":[true,null,"x"],"z":1}');
+    const shared = { v: 1 };
+    expect(canonicalJson({ a: shared, b: [shared, shared] })).toBe('{"a":{"v":1},"b":[{"v":1},{"v":1}]}');
+    expect(canonicalJson(JSON.parse('{"d":"2026-10-16T00:00:00.000Z"}'))).toBe('{"d":"2026-10-16T00:00:00.000Z"}');
+    expect(canonicalJson(-0)).toBe("0");
+  });
+
+  it("журнал и идемпотентность отказывают на Date в payload, теле и результате (К12)", async () => {
+    const j = new HashChainJournal(new MemoryJournalStore(), () => "2026-10-16T00:00:00.000Z");
+    expect(() => j.append("k", "R-1", { at: new Date(0) })).toThrow("NON_PLAIN_OBJECT");
+    expect(j.verify()).toEqual({ ok: true });
+    expect(() => new IdempotencyStore<unknown>().run("key-1", { at: new Date(0) }, () => 1)).toThrow("NON_PLAIN_OBJECT");
+    const idem = new AsyncMemoryIdempotencyStore<unknown>();
+    await expect(idem.run("key-1", { a: 1 }, async () => ({ at: new Date(0) }))).rejects.toThrow("NON_PLAIN_OBJECT");
   });
 });
 
