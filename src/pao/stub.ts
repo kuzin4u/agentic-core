@@ -248,7 +248,9 @@ export class PaoStub {
     return { error: { code: "UPSTREAM_UNAVAILABLE", message: "нет обработчика в заглушке", status: 500, retry: "never" } };
   }
 
-  /** Регистрация ключа по РП23 п. 2–4, доп. 1, 6, 7 и РП31 п. 2. Статус агента уже проверен: сюда доходит только ACTIVE. */
+  /** Регистрация ключа по РП23 п. 2–4, доп. 1, 6, 7 и РП31 п. 2. Статус агента уже проверен: сюда доходит только ACTIVE —
+   *  как у Платформы (`src/pao/routes.ts`: смена ключа приостановленным — через оператора, PS-31), хотя РП23 доп. 2
+   *  допускает регистрацию приостановленному (расхождение передано в agentic-ps-platform). */
   private registerKey(agentCode: string, body: unknown): PaoStubReply<"POST /pao/v1/agent/keys"> {
     const b = (typeof body === "object" && body !== null ? body : {}) as { alg?: unknown; public_key?: unknown };
     if (typeof b.alg !== "string" || typeof b.public_key !== "string") return { error: { code: "REQUEST_INVALID" } };

@@ -33,6 +33,8 @@ describe.skipIf(!DATABASE_URL)("PostgreSQL: nonce", () => {
     const n = 20;
     let left = n, open!: () => void;
     const gate = new Promise<void>((r) => (open = r));
+    // Предохранитель: если seen делает меньше одной команды на вызов, барьер откроется по таймеру и тест упадёт, а не зависнет.
+    const fuse = setTimeout(() => open(), 3_000);
     const barrier: SqlClient = {
       async query(text, params) {
         const r = await db.query(text, params as unknown[]);
@@ -43,6 +45,8 @@ describe.skipIf(!DATABASE_URL)("PostgreSQL: nonce", () => {
     };
     const N = new PgNonceStore(barrier, "barrier", { retainMs: 600_000 });
     const out = await Promise.all(Array.from({ length: n }, () => N.seen("race")));
+    clearTimeout(fuse);
+    expect(left).toBe(0);
     expect(out.filter((x) => !x).length).toBe(1);
   });
 
