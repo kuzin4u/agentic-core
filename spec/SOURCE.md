@@ -2,8 +2,8 @@
 
 | Файл | Источник | Коммит | sha-256 |
 |---|---|---|---|
-| `agent-protocol.yaml` (ПАО 1.2.0) | agentic-ps-platform, `docs/core/agent-protocol.yaml` | `04b7841` (РП16) | `4f42e8b62599c88a8291ef3dd797c92e00a4932067eef23271c76943e4407940` |
+| `agent-protocol.yaml` (ПАО 1.3.0) | agentic-ps-platform, `docs/proposals/agent-protocol-1.3.0.yaml`, ветка `task/PS-05` (РП31 п. 6; в `docs/core` платформы — после тега ядра) | `58da0c3` (РП31) | `46e1c7e6fdab61e5b7e5708326da5e8ae7b8dc7acc952e1c2ad177663bfc07c7` |
 
-Предыдущие копии: ПАО 1.1.0 — `0bc924e`, sha-256 `e6725aa4270155be5d0606cb366ca095fedc13a7d4e6c7b9500d25addf945ecb`.
+Предыдущие копии: ПАО 1.2.0 — `04b7841`, sha-256 `4f42e8b62599c88a8291ef3dd797c92e00a4932067eef23271c76943e4407940`; ПАО 1.1.0 — `0bc924e`, sha-256 `e6725aa4270155be5d0606cb366ca095fedc13a7d4e6c7b9500d25addf945ecb`.
 
 Копия не правится вручную. Обновление — через `/decision` (К5): скопировать файл из платформы, обновить эту таблицу, `npm run gen:pao`. Тест сверяет хэш копии с этой таблицей и с заголовком `src/pao/types.ts`. Таблица ошибок `x-pao-errors` (РП16) генерируется в `PAO_ERRORS`; генератор отказывает, если перечень кодов в ней не совпадает с `ErrorCode`.
