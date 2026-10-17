@@ -1,6 +1,7 @@
 // catalog по К8 п. 1: каноническая модель магазина и товара, валидатор с кодами и путём поля; суммы — Money (К9).
 import { describe, it, expect } from "vitest";
 import * as core from "../src/index.js";
+import { linearInWorker } from "./linear.js";
 import { validateShop, validateProduct, isInn, isGtin, checkProductA5, checkShopA5, type CatalogShop, type CatalogProduct } from "../src/catalog/index.js";
 
 const shop = (): CatalogShop => ({
@@ -170,6 +171,14 @@ describe("catalog: A5 — текст возврата против days", () => 
 
   it("срок словами не распознаётся — сигнала нет", () => {
     expect(a5(s(14, "Возврат в течение двух недель"))).toEqual([]);
+  });});
+
+describe("catalog: A5 — линейное время на тексте продавца (CodeQL js/polynomial-redos)", () => {
+  it("цена: 200 000 символов цифр, разрядов, пробелов, знаков валюты — не дольше 2 с", async () => {
+    expect(await linearInWorker("a5Price", 200_000)).toHaveLength(6);
+  });
+  it("возврат: 200 000 символов цифр, повтора «возврат», пробелов — не дольше 2 с", async () => {
+    expect(await linearInWorker("a5Returns", 200_000)).toHaveLength(5);
   });
 });
 

@@ -1,7 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { Worker } from "node:worker_threads";
+import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { newEd25519Signer, sha256Hex, signRequest, type Signer } from "../src/index.js";
 import * as core from "../src/index.js";
@@ -10,6 +8,7 @@ import {
   type ErrorCode, type MandateRequest, type Mandate, type PaoClientOptions, type PaoStubOptions,
 } from "../src/pao/index.js";
 import { routePattern } from "../src/pao/route.js";
+import { linearInWorker } from "./linear.js";
 
 const AGENT = "nspk:agent:buyref-01:v3";
 const REQ: MandateRequest = {
@@ -28,29 +27,6 @@ async function setup(stubOpts: Partial<PaoStubOptions> = {}, clientOpts: Partial
   const sleeps: number[] = [];
   const client = new PaoClient({ baseUrl, agentCode: AGENT, signer, sleep: async (ms) => { sleeps.push(ms); }, ...clientOpts });
   return { stub, client, sleeps, publicKey, baseUrl };
-}
-
-/** Разбор длинного входа в worker (П5.2): ждать не дольше budgetMs после загрузки модулей, затем terminate().
- *  Синхронный сверхлинейный цикл таймаут vitest не прерывает — без worker он повесил бы CI. */
-function linearInWorker(kind: "baseUrl" | "retryAfter", n: number, budgetMs = 2000): Promise<unknown> {
-  // каждый src/**/*.ts — не новее своего dist/src/**/*.js (без pretest dist мог устареть)
-  for (const f of readdirSync("src", { recursive: true }) as string[]) {
-    if (!f.endsWith(".ts")) continue;
-    const src = join("src", f), out = join("dist", "src", f.replace(/\.ts$/, ".js"));
-    if ((statSync(out, { throwIfNoEntry: false })?.mtimeMs ?? 0) < statSync(src).mtimeMs) throw new Error(`${out} старше ${src}: npm run build (в npm test — pretest)`);
-  }
-  return new Promise((resolve, reject) => {
-    const w = new Worker(new URL("./linear-worker.mjs", import.meta.url));
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const done = (f: () => void) => { clearTimeout(timer); void w.terminate(); f(); };
-    w.on("message", (m: { ready?: true; result?: unknown }) => {
-      if (m.ready) {
-        timer = setTimeout(() => done(() => reject(new Error(`сверхлинейный разбор: ${kind} на ${n} символов дольше ${budgetMs} мс`))), budgetMs);
-        w.postMessage({ kind, n });
-      } else done(() => resolve(m.result));
-    });
-    w.on("error", (e) => done(() => reject(e)));
-  });
 }
 
 const rejected = (p: Promise<unknown>) => p.then(() => { throw new Error("ожидался отказ"); }, (e: unknown) => e as PaoCallError);

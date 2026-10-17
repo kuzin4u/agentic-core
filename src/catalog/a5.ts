@@ -44,11 +44,13 @@ export function checkShopA5(s: CatalogShop): A5Signal[] {
   return none && terms.length === 0 ? [{ code: "A5_RETURNS_MISMATCH", path: at, found: 0 }] : [];
 }
 
-// Число (не продолжение другого числа): целое с разрядами через пробел (обычный, неразрывный, узкий) или без, дробная часть через точку или запятую.
-const NUM = String.raw`(?<![\d.,])(\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,](\d+))?`;
+// Выражения линейны на любом тексте продавца (CodeQL js/polynomial-redos): совпадение начинается только с начала числа
+// или слова — просмотром назад, иначе повтор с каждой позиции даёт квадратичное время на «999…», «1 111 111…», «возвратвозврат…».
+// Число (не продолжение другого числа и его разрядов): целое с разрядами через пробел (обычный, неразрывный, узкий) или без, дробная часть через точку или запятую.
+const NUM = String.raw`(?<![\d.,]|\d[ \u00A0\u202F])(\d{1,3}(?:[ \u00A0\u202F]\d{3})+|\d+)(?:[.,](\d+))?`;
 const RUB = String.raw`₽|руб(?:\.|л[а-яё]*)?|р\.`;
-const DAYS = /(\d+)\s*(?:(?:календарн|рабоч)[а-яё]*\s+)?(?:дн(?:я|ей)|день|сут(?:ок|ки))/giu;
-const NO_RETURN = /не\s+подлеж|без\s+возврат|возврат[а-яё]*\s+не\s+(?:принима|осуществля|производ|предусм)|не\s+возвраща/iu;
+const DAYS = /(?<!\d)(\d+)\s*(?:(?:календарн|рабоч)[а-яё]*\s+)?(?:дн(?:я|ей)|день|сут(?:ок|ки))/giu;
+const NO_RETURN = /(?<![а-яё])(?:не\s+подлеж|без\s+возврат|возврат[а-яё]*\s+не\s+(?:принима|осуществля|производ|предусм)|не\s+возвраща)/iu;
 
 function pricesIn(text: string, currency: string, exponent: number): (number | null)[] {
   const code = escape(currency);
@@ -66,7 +68,7 @@ function pricesIn(text: string, currency: string, exponent: number): (number | n
 function minor(int: string, frac: string | undefined, exponent: number): number | null {
   const f = frac ?? "";
   if (f.length > exponent) return null;
-  const v = BigInt(int.replace(/[   ]/g, "")) * 10n ** BigInt(exponent) + BigInt(f.padEnd(exponent, "0") || "0");
+  const v = BigInt(int.replace(/[ \u00A0\u202F]/g, "")) * 10n ** BigInt(exponent) + BigInt(f.padEnd(exponent, "0") || "0");
   return v <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(v) : null;
 }
 
