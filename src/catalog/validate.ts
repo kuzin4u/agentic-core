@@ -1,4 +1,5 @@
 import { MoneyError, money } from "../money.js";
+import { isIsoDateTime } from "./date.js";
 import type { CatalogShop } from "./types.js";
 
 /** Нарушение модели: код и путь поля (`$.price.amount`). Текстов для человека в ядре нет — их даёт потребитель по коду. */
@@ -184,10 +185,4 @@ export function isGtin(s: string): boolean {
   const check = d.pop()!;
   const sum = d.reverse().reduce((a, x, i) => a + x * (i % 2 === 0 ? 3 : 1), 0);
   return (10 - (sum % 10)) % 10 === check;
-}
-
-const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
-
-function isIsoDateTime(s: string): boolean {
-  return ISO_DATE_TIME.test(s) && Number.isFinite(Date.parse(s));
 }
