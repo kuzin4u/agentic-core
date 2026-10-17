@@ -123,8 +123,8 @@ describe("разборщик XML (К14 п. 5)", () => {
     expect(r.children).toEqual(["abcd"]);
   });
 
-  it("линейное время на 1 000 000 символов (worker)", async () => {
-    expect(await linearInWorker("xml", 1_000_000)).toEqual([
+  it("линейное время на 1 000 000 символов (worker, бюджет 5 с: разбор ≈ 0,8 с, квадратичная поломка ≈ 57 с)", async () => {
+    expect(await linearInWorker("xml", 1_000_000, 5000)).toEqual([
       "ok", "ok", "ok", "ok", "XML_SYNTAX", "XML_SYNTAX", "XML_SYNTAX", "ok", "XML_DOCTYPE", "XML_ENTITY", "XML_SYNTAX",
     ]);
   });

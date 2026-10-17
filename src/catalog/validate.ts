@@ -15,7 +15,15 @@ export type CatalogIssueCode =
   | "BAD_DATE"        // не ISO 8601 с часовым поясом
   | "BAD_RANGE"       // число вне допустимого: отрицательное, дробное, minDays > maxDays, рейтинг вне 0…1, самовывоз не за 0
   | "BAD_METHOD"      // способ получения не DELIVERY и не PICKUP
-  | "UNKNOWN_REGION"; // регион доставки товара не входит в регионы магазина
+  | "UNKNOWN_REGION" // регион доставки товара не входит в регионы магазина
+  // коннектор YML (К14): ошибки XML — путь `@смещение`, ошибки YML — путь в фиде (`/yml_catalog/shop/offers/offer[2]/price`)
+  | "XML_SYNTAX" | "XML_ENTITY" | "XML_DOCTYPE" | "XML_ENCODING" | "XML_LIMIT"
+  | "YML_STRUCTURE" // корень не `yml_catalog` или нет `shop`, `offers`
+  | "YML_DATE"      // `yml_catalog@date` не дата или без часового пояса и без `offset`
+  | "YML_CURRENCY"  // нет `currencyId` или его нет среди `currencies`
+  | "YML_PRICE"     // цена или стоимость доставки: не число, знаков больше `exponent`, больше Number.MAX_SAFE_INTEGER
+  | "YML_CATEGORY"  // нет `categoryId`, нет такой категории, разрыв или цикл `parentId`
+  | "YML_NUMBER";   // `count` или `days` варианта доставки — не целое ≥ 0
 
 type Obj = Record<string, unknown>;
 

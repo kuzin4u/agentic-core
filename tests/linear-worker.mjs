@@ -5,7 +5,7 @@ import { parentPort } from "node:worker_threads";
 
 const { PaoClient } = await import(new URL("../dist/src/pao/index.js", import.meta.url).href);
 const { newEd25519Signer } = await import(new URL("../dist/src/index.js", import.meta.url).href);
-const { checkProductA5, checkShopA5 } = await import(new URL("../dist/src/catalog/index.js", import.meta.url).href);
+const { checkProductA5, checkShopA5, parseYml } = await import(new URL("../dist/src/catalog/index.js", import.meta.url).href);
 const { parseXml } = await import(new URL("../dist/src/catalog/xml.js", import.meta.url).href);
 const { signer } = newEd25519Signer("k-x");
 
@@ -49,6 +49,14 @@ const cases = {
       "<r>" + "&a".repeat(n / 2),
       "<" + "a".repeat(n),
     ].map((s) => { const r = parseXml(s, limits); return r.ok ? "ok" : r.code; });
+  },
+  // Коннектор YML (К14): длинная цепочка parentId, все предложения — в самой глубокой категории.
+  yml: async (n) => {
+    const cats = Array.from({ length: n }, (_, i) => `<category id="${i}"${i ? ` parentId="${i - 1}"` : ""}>к</category>`).join("");
+    const offers = `<offer id="o"><name>х</name><price>1</price><currencyId>RUB</currencyId><categoryId>${n - 1}</categoryId></offer>`.repeat(n);
+    const xml = `<yml_catalog date="2026-10-17T07:00Z"><shop><categories>${cats}</categories><offers>${offers}</offers></shop></yml_catalog>`;
+    const r = parseYml(xml, {}, { exponent: 2 });
+    return [r.products.length, r.issues.length];
   },
 };
 
