@@ -21,7 +21,8 @@ export interface CatalogShop {
   fulfillmentRating?: number;
 }
 
-/** Условия возврата: срок в полях и текст продавца, как его видит человек (по A5 они совпадают). */
+/** Условия возврата: срок в полях и текст продавца, как его видит человек (по A5 они совпадают).
+ *  `days` = 0 — возврата нет: продовольственные товары надлежащего качества не возвращаются (хлеб). */
 export interface CatalogReturns {
   days: number;
   text: string;
@@ -57,8 +58,13 @@ export interface CatalogAvailability {
   quantity?: number;
 }
 
-/** Вариант доставки: срок в днях и стоимость. `region` — код из `CatalogShop.deliveryRegions`, без него — во все регионы магазина. */
+/** Способ получения: доставка или самовывоз. */
+export type CatalogDeliveryMethod = "DELIVERY" | "PICKUP";
+
+/** Вариант получения: способ, срок в днях и стоимость. Самовывоз — `PICKUP` с `cost` 0 (у пекарен часто единственный).
+ *  `region` — код из `CatalogShop.deliveryRegions`, без него — во все регионы магазина. */
 export interface CatalogDelivery {
+  method: CatalogDeliveryMethod;
   region?: string;
   minDays: number;
   maxDays: number;

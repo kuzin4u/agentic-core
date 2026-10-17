@@ -13,7 +13,8 @@ export type CatalogIssueCode =
   | "BAD_MCC"         // не 4 цифры
   | "BAD_GTIN"        // не 8, 12, 13 или 14 цифр либо неверная контрольная цифра
   | "BAD_DATE"        // не ISO 8601 с часовым поясом
-  | "BAD_RANGE"       // число вне допустимого: отрицательное, дробное, minDays > maxDays, рейтинг вне 0…1
+  | "BAD_RANGE"       // число вне допустимого: отрицательное, дробное, minDays > maxDays, рейтинг вне 0…1, самовывоз не за 0
+  | "BAD_METHOD"      // способ получения не DELIVERY и не PICKUP
   | "UNKNOWN_REGION"; // регион доставки товара не входит в регионы магазина
 
 type Obj = Record<string, unknown>;
@@ -93,6 +94,8 @@ export function validateProduct(value: unknown, shop?: Pick<CatalogShop, "delive
 function delivery(x: unknown, at: string, out: CatalogIssue[], shop?: Pick<CatalogShop, "deliveryRegions">): void {
   const o = object(x, at, out);
   if (!o) return;
+  const method = field(o, "method", at, out, true);
+  if (method !== undefined && method !== "DELIVERY" && method !== "PICKUP") out.push({ code: "BAD_METHOD", path: `${at}.method` });
   if (field(o, "region", at, out, false) !== undefined) {
     const r = str(o, "region", at, out);
     if (r !== undefined && shop && !shop.deliveryRegions.includes(r)) out.push({ code: "UNKNOWN_REGION", path: `${at}.region` });
@@ -100,7 +103,7 @@ function delivery(x: unknown, at: string, out: CatalogIssue[], shop?: Pick<Catal
   const min = count(o, "minDays", at, out, true);
   const max = count(o, "maxDays", at, out, true);
   if (min !== undefined && max !== undefined && min > max) out.push({ code: "BAD_RANGE", path: `${at}.maxDays` });
-  moneyField(o, "cost", at, out);
+  if (moneyField(o, "cost", at, out) && method === "PICKUP" && (o.cost as Obj).amount !== 0) out.push({ code: "BAD_RANGE", path: `${at}.cost.amount` });
 }
 
 function field(o: Obj, k: string, at: string, out: CatalogIssue[], required: boolean): unknown {
@@ -144,15 +147,16 @@ function count(o: Obj, k: string, at: string, out: CatalogIssue[], required: boo
   return v;
 }
 
-/** Сумма — проверкой `money` (К9), без своей таблицы знаков. */
-function moneyField(o: Obj, k: string, at: string, out: CatalogIssue[]): void {
+/** Сумма — проверкой `money` (К9), без своей таблицы знаков. `true` — сумма верна. */
+function moneyField(o: Obj, k: string, at: string, out: CatalogIssue[]): boolean {
   const v = field(o, k, at, out, true);
-  if (v === undefined) return;
+  if (v === undefined) return false;
   const m = object(v, `${at}.${k}`, out);
-  if (!m) return;
-  try { money(m.amount as number, m.currency as string); } catch (e) {
+  if (!m) return false;
+  try { money(m.amount as number, m.currency as string); return true; } catch (e) {
     if (!(e instanceof MoneyError)) throw e;
     out.push({ code: e.code === "BAD_CURRENCY" ? "BAD_CURRENCY" : "BAD_AMOUNT", path: `${at}.${k}.${e.code === "BAD_CURRENCY" ? "currency" : "amount"}` });
+    return false;
   }
 }
 

@@ -11,7 +11,7 @@ const product = (): CatalogProduct => ({
   sku: "B-500", gtin: "4006381333931", brand: "Бренд", model: "М-1", attributes: { "вес": "500 г" },
   title: "Хлеб пшеничный", category: "Хлеб", price: { amount: 25_000, currency: "RUB" },
   availability: { inStock: true, quantity: 3 },
-  delivery: [{ region: "77", minDays: 0, maxDays: 1, cost: { amount: 0, currency: "RUB" } }],
+  delivery: [{ method: "DELIVERY", region: "77", minDays: 0, maxDays: 1, cost: { amount: 0, currency: "RUB" } }],
   updatedAt: "2026-10-17T09:00:00+03:00",
 });
 const codes = (issues: { code: string; path: string }[]) => issues.map((i) => `${i.code} ${i.path}`);
@@ -28,6 +28,11 @@ describe("catalog: магазин", () => {
     ]);
     expect(codes(validateShop(null))).toEqual(["BAD_TYPE $"]);
     expect(codes(validateShop({ ...shop(), returns: {} }))).toEqual(["REQUIRED $.returns.days", "REQUIRED $.returns.text"]);
+  });
+
+  it("возврат: days = 0 — нормальное значение (продовольственные товары), отрицательное — BAD_RANGE", () => {
+    expect(validateShop({ ...shop(), returns: { days: 0, text: "Продовольственные товары надлежащего качества возврату не подлежат" } })).toEqual([]);
+    expect(codes(validateShop({ ...shop(), returns: { days: -1, text: "—" } }))).toEqual(["BAD_RANGE $.returns.days"]);
   });
 
   it("ИНН, MCC, рейтинг, списки", () => {
@@ -79,6 +84,16 @@ describe("catalog: товар", () => {
     expect(validateProduct({ ...product(), delivery: [{ ...d, region: "99" }] })).toEqual([]);
     const { region, ...anyRegion } = d;
     expect(validateProduct({ ...product(), delivery: [anyRegion] }, shop())).toEqual([]);
+  });
+
+  it("способ получения: DELIVERY или PICKUP; самовывоз — за 0 и может быть единственным вариантом", () => {
+    const pickup = { method: "PICKUP", minDays: 0, maxDays: 0, cost: { amount: 0, currency: "RUB" } };
+    expect(validateProduct({ ...product(), delivery: [pickup] }, shop())).toEqual([]);
+    expect(codes(validateProduct({ ...product(), delivery: [{ ...pickup, cost: { amount: 100, currency: "RUB" } }] }))).toEqual(["BAD_RANGE $.delivery[0].cost.amount"]);
+    expect(codes(validateProduct({ ...product(), delivery: [{ ...pickup, method: "COURIER" }] }))).toEqual(["BAD_METHOD $.delivery[0].method"]);
+    const { method, ...noMethod } = pickup;
+    expect(codes(validateProduct({ ...product(), delivery: [noMethod] }))).toEqual(["REQUIRED $.delivery[0].method"]);
+    expect(codes(validateProduct({ ...product(), delivery: [{ ...pickup, method: "PICKUP", cost: { amount: 1.5, currency: "RUB" } }] }))).toEqual(["BAD_AMOUNT $.delivery[0].cost.amount"]);
   });
 
   it("атрибуты, наличие, дата обновления, желательные поля", () => {
