@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 
 /** Сценарии из `linear-worker.mjs`. */
-export type LinearCase = "baseUrl" | "retryAfter" | "a5Price" | "a5Returns";
+export type LinearCase = "baseUrl" | "retryAfter" | "a5Price" | "a5Returns" | "xml";
 
 /** Разбор длинного входа в worker (П5.2): ждать не дольше budgetMs после загрузки модулей, затем terminate().
  *  Синхронный сверхлинейный цикл таймаут vitest не прерывает — без worker он повесил бы CI. */
