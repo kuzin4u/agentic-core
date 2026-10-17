@@ -138,6 +138,12 @@ describe("коннектор YML: ошибки перевода — коды и 
       .toEqual({ shop: null, products: [], issues: [{ code: "XML_DOCTYPE", path: "@12" }] });
   });
 
+  it("нулевой байт в описании или атрибуте — XML_SYNTAX, фид не переводится (ревью из чата 17.10, П1.4)", () => {
+    const desc = feed(BASE + "<description>Хлеб\u0000</description>");
+    expect(parseYml(desc, profile(), OPT)).toEqual({ shop: null, products: [], issues: [{ code: "XML_SYNTAX", path: `@${desc.indexOf("\u0000")}` }] });
+    expect(parseYml(feed(BASE, { attrs: `id="x\u0000"` }), profile(), OPT).issues[0]!.code).toBe("XML_SYNTAX");
+  });
+
   it("ошибка вызова — RangeError", () => {
     expect(() => parseYml(FEED, profile(), { exponent: -1 })).toThrow(RangeError);
     expect(() => parseYml(FEED, profile(), { exponent: 2, offset: "MSK" })).toThrow(RangeError);

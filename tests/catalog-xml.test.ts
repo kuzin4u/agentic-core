@@ -118,6 +118,16 @@ describe("разборщик XML (К14 п. 5)", () => {
     ]) expect(parseXml(bad), bad).toMatchObject({ ok: false, code: "XML_SYNTAX" });
   });
 
+  it("символы вне XML 1.0 в тексте, атрибуте, CDATA, комментарии — XML_SYNTAX со смещением; табуляция, LF, CR, пары суррогатов — нет", () => {
+    expect(parseXml("<r><d>Хлеб\u0000</d></r>")).toEqual({ ok: false, code: "XML_SYNTAX", offset: 10 });
+    expect(parseXml("<r a='x\u0000'/>")).toEqual({ ok: false, code: "XML_SYNTAX", offset: 7 });
+    for (const [bad, offset] of [
+      ["<r><![CDATA[\u0001]]></r>", 12], ["<r><!--\u001f--></r>", 7], ["<r>\u000b</r>", 3], ["<r>\ufffe</r>", 3], ["<r>\uffff</r>", 3],
+      ["<r>\ud800</r>", 3], ["<r>x\udc00</r>", 4], ["<r>\udc00\ud800</r>", 3],
+    ] as const) expect(parseXml(bad), JSON.stringify(bad)).toEqual({ ok: false, code: "XML_SYNTAX", offset });
+    expect(textOf(root(parseXml("<r>\t\n\r😀\ud83d\ude00</r>")))).toBe("\t\n\n😀😀");
+  });
+
   it("инструкции обработки пропускаются, вложенный текст сливается с CDATA", () => {
     const r = root(parseXml(`<?xml version="1.0"?><?xml-stylesheet href="a"?><r>a<![CDATA[b]]>c<?pi x?>d</r>`));
     expect(r.children).toEqual(["abcd"]);

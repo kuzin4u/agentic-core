@@ -7,7 +7,7 @@ export interface XmlElement { name: string; attrs: Record<string, string>; child
 export type XmlNode = XmlElement | string;
 
 export type XmlErrorCode =
-  | "XML_SYNTAX"   // вход не XML или вне подмножества
+  | "XML_SYNTAX"   // вход не XML или вне подмножества, символ вне XML 1.0 (C0, U+FFFE, U+FFFF, одиночный суррогат)
   | "XML_ENTITY"   // сущность не из пяти предопределённых и не допустимая числовая
   | "XML_DOCTYPE"  // DOCTYPE с внутренним подмножеством, иной формы, длиннее 1 КиБ, повторный или после корня
   | "XML_ENCODING" // кодировка не UTF-8 и не windows-1251 либо неверная последовательность байт
@@ -73,6 +73,9 @@ class Parser {
 
   document(): XmlElement {
     const { s } = this;
+    // запрещённые символы — до разбора, одним проходом по всему входу: текст, атрибуты, CDATA, комментарии
+    const bad = forbidden(s);
+    if (bad >= 0) throw new Fail("XML_SYNTAX", bad);
     let root: XmlElement | undefined, doctype = false;
     if (s.startsWith("<?xml", this.i) && isSpace(s.charCodeAt(this.i + 5))) this.skip("?>", "XML_SYNTAX");
     for (;;) {
@@ -242,6 +245,20 @@ function entity(ref: string, at: number): string {
   const ok = cp === 0x9 || cp === 0xa || cp === 0xd || (cp >= 0x20 && cp <= 0xd7ff) || (cp >= 0xe000 && cp <= 0xfffd) || (cp >= 0x10000 && cp <= 0x10ffff);
   if (!ok) throw new Fail("XML_ENTITY", at);
   return String.fromCodePoint(cp);
+}
+
+/** Первый символ вне XML 1.0 (2.2) или −1: C0, кроме табуляции, LF, CR; U+FFFE, U+FFFF; одиночные суррогаты.
+ *  Нулевой байт не примет PostgreSQL в `text`, управляющие символы попали бы в текст для модели агента. Цикл по кодовым
+ *  единицам: выражение с проверкой соседей на каждой позиции не уложилось в бюджет теста линейности (5 с). */
+function forbidden(s: string): number {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0x20 && c < 0xd800) continue;
+    if (c < 0x20) { if (c !== 0x9 && c !== 0xa && c !== 0xd) return i; }
+    else if (c <= 0xdbff) { const n = s.charCodeAt(i + 1); if (n >= 0xdc00 && n <= 0xdfff) i++; else return i; }
+    else if (c <= 0xdfff || c === 0xfffe || c === 0xffff) return i;
+  }
+  return -1;
 }
 
 function isSpace(c: number): boolean { return c === 0x20 || c === 0x9 || c === 0xa || c === 0xd; }
