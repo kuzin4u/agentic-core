@@ -21,6 +21,15 @@ export class PgIdempotencyStore<R = unknown> implements AsyncIdempotencyStore<R>
     const token = randomUUID();
     for (let i = 0; i < ATTEMPTS; i++) {
       const now = this.o.now();
+      const pre = await this.client.query<Row>("SELECT body_hash, state, token, result FROM core_idempotency WHERE scope = $1 AND key = $2", [this.scope, key]);
+      if (!pre.rows[0]) {
+        await this.client.query(
+          `INSERT INTO core_idempotency (scope, key, body_hash, state, token, at) VALUES ($1, $2, $3, 'RUNNING', $4, $5::bigint)
+           ON CONFLICT (scope, key) DO UPDATE SET body_hash = EXCLUDED.body_hash, state = 'RUNNING', token = EXCLUDED.token, result = NULL, at = EXCLUDED.at`,
+          [this.scope, key, bodyHash, token, now],
+        );
+        return { result: await this.execute(key, bodyHash, token, fn), replayed: false };
+      }
       const claim = await this.client.query<{ token: string }>(
         `INSERT INTO core_idempotency (scope, key, body_hash, state, token, at) VALUES ($1, $2, $3, 'RUNNING', $4, $5::bigint)
          ON CONFLICT (scope, key) DO UPDATE SET body_hash = EXCLUDED.body_hash, state = 'RUNNING', token = EXCLUDED.token, result = NULL, at = EXCLUDED.at
