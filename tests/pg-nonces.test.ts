@@ -2,8 +2,9 @@
 // Без DATABASE_URL — пропуск; в CI пропуск ловит страж в tests/pg.test.ts.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import pg from "pg";
-import { applyMigrations, PgNonceStore, type SqlClient } from "../src/index.js";
+import { applyMigrations, PgNonceStore } from "../src/index.js";
 import { nonceContract } from "./nonce-contract.js";
+import { barrierClient } from "./pg-barrier.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -26,27 +27,14 @@ describe.skipIf(!DATABASE_URL)("PostgreSQL: nonce", () => {
 
   nonceContract((opts) => new PgNonceStore(db, `case-${++n}`, opts));
 
-  // Барьер ответов (П2.1): первые n ответов базы отдаются вызывающим только когда пришли все n. Если seen — две команды
-  // (SELECT, затем INSERT), все SELECT увидят пустую таблицу раньше любого INSERT, и «новым» окажется каждый вызов.
-  // Тест договора на пуле этого не ловит: соединения открываются по одному, и первый вызов успевает обе команды.
+  // Барьер ответов (П2.1, помощник — tests/pg-barrier.ts): все SELECT двухкомандной проверки увидели бы пустую таблицу.
   it("20 одновременных seen через барьер ответов: false ровно один раз (проверка и запись — одна команда)", async () => {
     const n = 20;
-    let left = n, open!: () => void;
-    const gate = new Promise<void>((r) => (open = r));
-    // Предохранитель: если seen делает меньше одной команды на вызов, барьер откроется по таймеру и тест упадёт, а не зависнет.
-    const fuse = setTimeout(() => open(), 3_000);
-    const barrier: SqlClient = {
-      async query(text, params) {
-        const r = await db.query(text, params as unknown[]);
-        if (left > 0 && --left === 0) open();
-        await gate;
-        return r;
-      },
-    };
-    const N = new PgNonceStore(barrier, "barrier", { retainMs: 600_000 });
+    const b = barrierClient(db, n);
+    const N = new PgNonceStore(b.client, "barrier", { retainMs: 600_000 });
     const out = await Promise.all(Array.from({ length: n }, () => N.seen("race")));
-    clearTimeout(fuse);
-    expect(left).toBe(0);
+    b.close();
+    expect(b.left()).toBe(0);
     expect(out.filter((x) => !x).length).toBe(1);
   });
 

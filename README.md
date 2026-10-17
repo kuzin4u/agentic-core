@@ -7,7 +7,7 @@ npm install
 npm test
 ```
 
-Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.5.0"` (после тега; переход с 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
+Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.5.0"` (после тега; переход с 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
 
 ## Каноническая сериализация (К12, с v0.5.0)
 
@@ -67,3 +67,28 @@ await nonces.purge(); // по расписанию
 ## Слабые ключи Ed25519 (К10, с v0.3.0)
 
 `isWeakEd25519(x: Buffer)` — 32 байта точки: слабый — неканоническая запись, точка не на кривой или малого порядка. `ed25519Verifier` такие ключи отвергает сам; функция — для реестров ключей у потребителей. Векторы — раздел `ed25519_weak_keys`.
+
+## Каталог продавца (К8, с v0.6.0)
+
+Подмодуль `/catalog` — каноническая модель каталога: агент читает каталоги только в ней, формат продавца переводит коннектор. Основной вход её не реэкспортирует.
+
+- `CatalogShop` — `id`, `inn` (10 цифр — организация, 12 — ИП или самозанятый), `mcc`, `paymentMethods`, `deliveryRegions`, `returns { days, text }` (`days` = 0 — возврата нет, продовольственные товары); желательно — `readiness`, `fulfillmentRating` (0…1).
+- `CatalogProduct` — `sku`, поля сопоставления `gtin`, `brand`, `model` (обязательны в записи; `null` — у продавца нет, например выпечка без штрихкода) и `attributes`, `title`, `category`, `price: Money` (К9), `availability { inStock, quantity? }`, `delivery` — хотя бы один вариант `{ method: "DELIVERY" | "PICKUP", region?, minDays, maxDays, cost: Money }` (самовывоз — за 0), `updatedAt` (ISO 8601 с поясом); желательно — `description`, `images`.
+
+```ts
+import { validateProduct, checkProductA5, checkShopA5 } from "@kuzin4u/agentic-core/catalog";
+
+const issues = validateProduct(item, shop);    // [] или [{ code: "BAD_GTIN", path: "$.gtin" }, …]
+if (issues.length === 0) {
+  const a5 = [...checkProductA5(item, 2), ...checkShopA5(shop)]; // 2 — знаков после запятой у RUB, таблицы в ядре нет
+  // [{ code: "A5_PRICE_MISMATCH", path: "$.description", found: 30000 }] — в тексте 300 ₽, в поле другая цена
+}
+```
+
+`validateShop` и `validateProduct` не бросают исключений на данных продавца: возвращают `CatalogIssue { code, path }`, коды — `REQUIRED`, `BAD_TYPE`, `BAD_AMOUNT`, `BAD_CURRENCY`, `BAD_INN`, `BAD_MCC`, `BAD_GTIN`, `BAD_DATE`, `BAD_RANGE`, `BAD_METHOD`, `UNKNOWN_REGION` (регион варианта не входит в регионы переданного магазина). Неизвестные поля допускаются. Тексты для человека — у потребителя по коду.
+
+Проверка A5 — после валидатора, на проверенных данных; расхождение — признак нарушения у продавца, а не ошибка разбора (`A5Signal { code, path, found }`):
+- `checkProductA5(product, exponent)` — цены в `title` и `description` против `price`: число перед кодом валюты цены, для RUB ещё перед `₽`, `руб`, `р.`; код валюты — и перед числом. Разряды через пробел (обычный, неразрывный, узкий), дробная часть через точку или запятую. Каждое упоминание, отличное от `price`, — сигнал («было 300 ₽, стало 250 ₽» даёт сигнал на 300); `found: null` — сумма в тексте не выражается в единицах валюты.
+- `checkShopA5(shop)` — `returns.text` против `returns.days`: срок цифрами в днях или сутках, отказ от возврата («не подлежат возврату», «без возврата») при `days` > 0. Срок словами («две недели») не распознаётся — сигнала нет.
+
+Разбор линеен на любом тексте продавца: тест — 200 000 символов в worker за 2 с.
