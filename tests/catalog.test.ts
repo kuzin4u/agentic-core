@@ -1,7 +1,7 @@
 // catalog по К8 п. 1: каноническая модель магазина и товара, валидатор с кодами и путём поля; суммы — Money (К9).
 import { describe, it, expect } from "vitest";
 import * as core from "../src/index.js";
-import { validateShop, validateProduct, isInn, isGtin, type CatalogShop, type CatalogProduct } from "../src/catalog/index.js";
+import { validateShop, validateProduct, isInn, isGtin, checkProductA5, checkShopA5, type CatalogShop, type CatalogProduct } from "../src/catalog/index.js";
 
 const shop = (): CatalogShop => ({
   id: "shop-1", inn: "7707083893", mcc: "5462", paymentMethods: ["sbp", "card"], deliveryRegions: ["77", "50"],
@@ -113,8 +113,68 @@ describe("catalog: товар", () => {
   });
 });
 
+describe("catalog: A5 — цена в тексте против поля", () => {
+  const p = (title: string, description?: string, amount = 25_000, currency = "RUB"): CatalogProduct =>
+    ({ ...product(), title, ...(description === undefined ? {} : { description }), price: { amount, currency } });
+  const a5 = (x: CatalogProduct, e = 2) => checkProductA5(x, e).map((s) => `${s.code} ${s.path} ${s.found}`);
+
+  it("совпадает или цены в тексте нет — сигналов нет", () => {
+    for (const t of ["Хлеб пшеничный", "Хлеб 250 ₽", "Хлеб за 250 руб.", "Хлеб — 250 рублей", "250,00 р.", "RUB 250", "250RUB", "Батон 500 г, 250 ₽"]) {
+      expect(a5(p(t)), t).toEqual([]);
+    }
+    expect(a5(p("Набор", "Всего 2 250 ₽ за набор", 225_000))).toEqual([]);
+    expect(a5(p("Набор", "Всего 2\u00A0250,50\u00A0₽", 225_050))).toEqual([]);
+  });
+
+  it("расходится — A5_PRICE_MISMATCH с путём и суммой из текста", () => {
+    expect(a5(p("Хлеб 199 ₽"))).toEqual(["A5_PRICE_MISMATCH $.title 19900"]);
+    expect(a5(p("Хлеб", "Было 300 руб, стало 250 руб"))).toEqual(["A5_PRICE_MISMATCH $.description 30000"]);
+    expect(a5(p("Хлеб 250,5 ₽"))).toEqual(["A5_PRICE_MISMATCH $.title 25050"]);
+    expect(a5(p("Хлеб 250,505 ₽"))).toEqual(["A5_PRICE_MISMATCH $.title null"]);
+  });
+
+  it("не цена: другие числа, «рубашка», знак ₽ перед числом, чужая валюта", () => {
+    for (const t of ["Хлеб 500 г", "Рубашка 3 рубашки", "Цена 250 ₽ 300 г", "Артикул 12 руба", "Хлеб 10 USD"]) expect(a5(p(t)), t).toEqual([]);
+  });
+
+  it("валюта и exponent — у потребителя (К9)", () => {
+    expect(a5(p("Item 10.50 USD", undefined, 1050, "USD"))).toEqual([]);
+    expect(a5(p("Item USD 10.5", undefined, 1050, "USD"))).toEqual([]);
+    expect(a5(p("Item 1000 JPY", undefined, 1000, "JPY"), 0)).toEqual([]);
+    expect(a5(p("Item 10.5 JPY", undefined, 10, "JPY"), 0)).toEqual(["A5_PRICE_MISMATCH $.title null"]);
+    expect(a5(p("Хлеб 250 руб", undefined, 1050, "USD"))).toEqual([]);
+    expect(() => checkProductA5(product(), -1)).toThrow(RangeError);
+    expect(() => checkProductA5(product(), 1.5)).toThrow(RangeError);
+  });
+});
+
+describe("catalog: A5 — текст возврата против days", () => {
+  const s = (days: number, text: string): CatalogShop => ({ ...shop(), returns: { days, text } });
+  const a5 = (x: CatalogShop) => checkShopA5(x).map((v) => `${v.code} ${v.found}`);
+
+  it("совпадает — сигналов нет", () => {
+    expect(a5(s(14, "Возврат в течение 14 дней"))).toEqual([]);
+    expect(a5(s(7, "Вернуть можно в течение 7 календарных дней"))).toEqual([]);
+    expect(a5(s(1, "Возврат — 1 день"))).toEqual([]);
+    expect(a5(s(0, "Продовольственные товары надлежащего качества возврату не подлежат"))).toEqual([]);
+    expect(a5(s(0, "Без возврата"))).toEqual([]);
+    expect(a5(s(0, "Не подлежат возврату, обмен — 14 дней"))).toEqual([]);
+  });
+
+  it("расходится — A5_RETURNS_MISMATCH со сроком из текста", () => {
+    expect(a5(s(14, "Возврат в течение 7 дней"))).toEqual(["A5_RETURNS_MISMATCH 7"]);
+    expect(a5(s(0, "Возврат в течение 14 дней"))).toEqual(["A5_RETURNS_MISMATCH 14"]);
+    expect(a5(s(14, "Товар возврату не подлежит"))).toEqual(["A5_RETURNS_MISMATCH 0"]);
+    expect(a5(s(3, "Возврат 3 суток, а для акций 1 сутки"))).toEqual(["A5_RETURNS_MISMATCH 1"]);
+  });
+
+  it("срок словами не распознаётся — сигнала нет", () => {
+    expect(a5(s(14, "Возврат в течение двух недель"))).toEqual([]);
+  });
+});
+
 describe("catalog: подмодуль", () => {
   it("основной вход не раскрывает /catalog (К8 п. 6)", () => {
-    for (const name of Object.keys(core)) expect(name).not.toMatch(/catalog|shop|product|gtin|inn$/i);
+    for (const name of Object.keys(core)) expect(name).not.toMatch(/catalog|shop|product|gtin|inn$|a5/i);
   });
 });
