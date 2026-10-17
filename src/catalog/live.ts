@@ -25,7 +25,7 @@ export type LiveCheckCode =
   | "LIVE_QUANTITY";    // продавец сообщил количество, и оно меньше запрошенного
 
 export interface LiveCheckOptions {
-  /** По умолчанию 5000 мс. */
+  /** По умолчанию 5000 мс; не больше 2^31 − 1 (предел таймера Node). */
   timeoutMs?: number;
   /** По умолчанию 60 000 мс. */
   maxAgeMs?: number;
@@ -119,7 +119,8 @@ function opts(o: LiveCheckOptions): Opts {
     clockSkewMs: o.clockSkewMs ?? 30_000,
     now: o.now ?? Date.now,
   };
-  if (!Number.isSafeInteger(r.timeoutMs) || r.timeoutMs < 1) throw new RangeError("timeoutMs");
+  // больше 2^31 − 1 Node ставит таймер на 1 мс — проверка молча всегда отказывала бы
+  if (!Number.isSafeInteger(r.timeoutMs) || r.timeoutMs < 1 || r.timeoutMs > 2_147_483_647) throw new RangeError("timeoutMs");
   if (!Number.isSafeInteger(r.maxAgeMs) || r.maxAgeMs < 0) throw new RangeError("maxAgeMs");
   if (!Number.isSafeInteger(r.clockSkewMs) || r.clockSkewMs < 0) throw new RangeError("clockSkewMs");
   if (typeof r.now !== "function") throw new TypeError("now");

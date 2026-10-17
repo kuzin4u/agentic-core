@@ -112,6 +112,7 @@ describe("checkLiveOffer: отказ при неясности", () => {
     await expect(checkLiveOffer(product, { sku: "tartine", quantity: 1, region: "" }, s)).rejects.toThrow(TypeError);
     await expect(checkLiveOffer({ ...product, price: rub(-1) }, req, s)).rejects.toThrow();
     await expect(checkLiveOffer(product, req, s, { timeoutMs: 0 })).rejects.toThrow(RangeError);
+    await expect(checkLiveOffer(product, req, s, { timeoutMs: 2 ** 31 })).rejects.toThrow(RangeError);
     await expect(checkLiveOffer(product, req, s, { maxAgeMs: -1 })).rejects.toThrow(RangeError);
     await expect(checkLiveOffer(product, req, {} as LiveOfferSource)).rejects.toThrow(TypeError);
     expect(s.calls).toHaveLength(0);
@@ -123,6 +124,7 @@ describe("compareLiveOffer и границы пакета", () => {
     expect(compareLiveOffer(product, live(), req, { now })).toEqual({ ok: true, offer: live() });
     expect(compareLiveOffer(product, live({ price: rub(1) }), req, { now })).toEqual({ ok: false, codes: ["LIVE_PRICE_DOWN"], offer: live({ price: rub(1) }) });
     expect(compareLiveOffer(product, { sku: "tartine" }, req, { now })).toEqual({ ok: false, codes: ["LIVE_INVALID"], offer: null });
+    expect(() => compareLiveOffer(product, live(), req, { now: () => NaN })).toThrow(TypeError);
   });
 
   it("основной вход не реэкспортирует живую проверку", () => {
