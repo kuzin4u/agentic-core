@@ -14,6 +14,10 @@
     "./pao": {
       "types": "./dist/src/pao/index.d.ts",
       "default": "./dist/src/pao/index.js"
+    },
+    "./catalog": {
+      "types": "./dist/src/catalog/index.d.ts",
+      "default": "./dist/src/catalog/index.js"
     }
   },
   "engines": {
