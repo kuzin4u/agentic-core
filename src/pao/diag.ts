@@ -1,5 +1,5 @@
 // Реестр кодов отказов ПАО в формате `/diag` (К17 п. 5). Ручной модуль рядом с генерируемым `types.ts`:
-// `action` обязан совпадать с `retry` из x-pao-errors (`PAO_ERRORS`), тест сверяет. `source` — первая оценка (документ владельца 18.10, PR #30).
+// `action` обязан совпадать с `retry` из x-pao-errors (`PAO_ERRORS`), тест сверяет. `source` — документ владельца 18.10 и решение владельца в PR #30 (П1.2).
 import type { DiagAction, DiagEntry } from "../diag/index.js";
 import type { Error as PaoErrorBody, ErrorCode } from "./types.js";
 
@@ -47,7 +47,7 @@ export const PAO_DIAG: Readonly<Record<ErrorCode, DiagEntry>> = {
   PRINCIPAL_SIGNATURE_PENDING: e("PRINCIPAL_SIGNATURE_PENDING", ["client"], "after_human",
     "Поручение ещё не подписано. Подпишите его в приложении банка.",
     "Мандат в статусе PENDING_SIGNATURE: клиент не подписал. Ждать события подписи, не повторять запрос в цикле.", `РП33; ${T6}`),
-  LIMIT_EXCEEDED: e("LIMIT_EXCEEDED", ["bank"], "after_human",
+  LIMIT_EXCEEDED: e("LIMIT_EXCEEDED", ["client", "bank"], "after_human",
     "Покупка превышает ограничение вашей карты или счёта. Измените ограничение в банке или уменьшите сумму.",
     "Отказ по ограничению платёжного инструмента у банка.", T6),
   STATE_UNAVAILABLE: e("STATE_UNAVAILABLE", ["platform"], "retry_same_key",
@@ -56,7 +56,7 @@ export const PAO_DIAG: Readonly<Record<ErrorCode, DiagEntry>> = {
   CONFIRMATION_REQUIRED: e("CONFIRMATION_REQUIRED", ["client"], "after_human",
     "Нужно ваше подтверждение покупки.",
     "Платформа требует подтверждения клиента до исполнения; повтор — после подтверждения.", T6),
-  CREDENTIAL_INVALID: e("CREDENTIAL_INVALID", ["agent"], "after_fix",
+  CREDENTIAL_INVALID: e("CREDENTIAL_INVALID", ["agent", "bank"], "after_fix",
     "Покупка не прошла по технической причине. Повторите позже.",
     "Платёжный реквизит уже использован, истёк или выпущен не для этого продавца: запросить новый.", T6),
   CREDENTIALS_FORBIDDEN: e("CREDENTIALS_FORBIDDEN", ["agent"], "stop",

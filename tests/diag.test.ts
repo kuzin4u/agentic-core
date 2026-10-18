@@ -92,6 +92,15 @@ describe("К17 п. 5: реестр PAO_DIAG", () => {
     }
   });
 
+  it("source по решению владельца (PR #30, П1.2)", () => {
+    const pick = (cs: (keyof typeof PAO_DIAG)[]) => Object.fromEntries(cs.map((c) => [c, PAO_DIAG[c].source]));
+    expect(pick(["LIMIT_EXCEEDED", "CREDENTIAL_INVALID", "AGENT_UNKNOWN", "AGENT_KEY_REVOKED", "CREDENTIALS_FORBIDDEN", "RATE_LIMITED", "CONFIRMATION_REQUIRED", "MANDATE_NOT_FOUND"])).toEqual({
+      LIMIT_EXCEEDED: ["client", "bank"], CREDENTIAL_INVALID: ["agent", "bank"],
+      AGENT_UNKNOWN: ["agent"], AGENT_KEY_REVOKED: ["agent"], CREDENTIALS_FORBIDDEN: ["agent"], RATE_LIMITED: ["agent"],
+      CONFIRMATION_REQUIRED: ["client"], MANDATE_NOT_FOUND: ["agent", "platform"],
+    });
+  });
+
   it("since: 1.3.0 — только REQUEST_INVALID и KEY_INVALID (К11)", () => {
     const late = Object.values(PAO_DIAG).filter((e) => e.since !== "1.1.0").map((e) => [e.code, e.since]);
     expect(late).toEqual([["REQUEST_INVALID", "1.3.0"], ["KEY_INVALID", "1.3.0"]]);
