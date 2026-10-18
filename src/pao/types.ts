@@ -1,8 +1,8 @@
 // Сгенерировано scripts/gen-pao.mjs из spec/agent-protocol.yaml — не править вручную (К5).
-// Протокол агентских операций (ПАО) 1.3.0, sha-256 46e1c7e6fdab61e5b7e5708326da5e8ae7b8dc7acc952e1c2ad177663bfc07c7
+// Протокол агентских операций (ПАО) 1.4.0, sha-256 48bd339746e83c0468fb8354d6b2d8f0c82020904af549063d3e44b1a51ad9da
 
-export const PAO_VERSION = "1.3.0";
-export const PAO_SPEC_SHA256 = "46e1c7e6fdab61e5b7e5708326da5e8ae7b8dc7acc952e1c2ad177663bfc07c7";
+export const PAO_VERSION = "1.4.0";
+export const PAO_SPEC_SHA256 = "48bd339746e83c0468fb8354d6b2d8f0c82020904af549063d3e44b1a51ad9da";
 
 export type ErrorCode = "AGENT_UNKNOWN" | "AGENT_SUSPENDED" | "AGENT_KEY_REVOKED" | "SIGNATURE_INVALID" | "MANDATE_NOT_FOUND" | "MANDATE_EXPIRED" | "MANDATE_REVOKED" | "MANDATE_SCOPE" | "PRINCIPAL_SIGNATURE_PENDING" | "LIMIT_EXCEEDED" | "STATE_UNAVAILABLE" | "CONFIRMATION_REQUIRED" | "CREDENTIAL_INVALID" | "CREDENTIALS_FORBIDDEN" | "IDEMPOTENCY_REQUIRED" | "IDEMPOTENCY_CONFLICT" | "RATE_LIMITED" | "UPSTREAM_UNAVAILABLE" | "REQUEST_INVALID" | "KEY_INVALID";
 
@@ -72,7 +72,9 @@ export interface MandateRequest {
 
 export type Mandate = MandateRequest & {
   id?: string;
-  agent_code?: string;
+  agent_code: string;
+  /** Порядок отзыва (A7 п. 2.1–2.2, РП37, v1.4.0): ссылка на соглашение банка с клиентом, например `bank:<participant_code>:revocation:v1`. Задаёт Платформа из записи участника, не агент; входит в `hash` записи и подписывается банком вместе с мандатом. Текст для человека — у банка. В ответах Платформы есть всегда. */
+  revocation_order?: string;
   status?: "PENDING_SIGNATURE" | "ACTIVE" | "REJECTED" | "EXPIRED" | "REVOKED" | "EXHAUSTED";
   signature_type?: "simple" | "qualified" | "gov_id";
   created_at?: string;
@@ -89,8 +91,21 @@ export interface MandateVerify {
 
 export interface Evidence {
   mandate_chain?: Array<Mandate>;
+  /** Записи цепочки журнала согласий целиком, с первой (РП38 п. 7): по ним пересчитываются хэши и Mandate.hash, подпись банка в payload решения и отзыва проверяется его открытым ключом. Предмета нет — только subject_commitment */
+  records?: Array<JournalRecord>;
   operations?: Array<Operation>;
   integrity?: "OK" | "BROKEN";
+}
+
+export interface JournalRecord {
+  seq: number;
+  kind: string;
+  ref: string;
+  parent_ref: string | null;
+  at: string;
+  payload: Record<string, unknown>;
+  prev_hash: string;
+  hash: string;
 }
 
 export interface Aoi {
@@ -423,7 +438,11 @@ export const PAO_OPERATIONS: Record<PaoOperationKey, PaoOperationSpec> = {
     "success": 201,
     "errors": [
       400,
-      409
+      401,
+      403,
+      404,
+      409,
+      503
     ],
     "pathParams": [],
     "query": [],
@@ -441,7 +460,10 @@ export const PAO_OPERATIONS: Record<PaoOperationKey, PaoOperationSpec> = {
     "idempotent": false,
     "success": 200,
     "errors": [
-      404
+      401,
+      403,
+      404,
+      503
     ],
     "pathParams": [
       "id"
@@ -1071,12 +1093,19 @@ export const PAO_SCHEMAS: Record<string, unknown> = {
       },
       {
         "type": "object",
+        "required": [
+          "agent_code"
+        ],
         "properties": {
           "id": {
             "type": "string"
           },
           "agent_code": {
             "type": "string"
+          },
+          "revocation_order": {
+            "type": "string",
+            "description": "Порядок отзыва (A7 п. 2.1–2.2, РП37, v1.4.0): ссылка на соглашение банка с клиентом, например `bank:<participant_code>:revocation:v1`. Задаёт Платформа из записи участника, не агент; входит в `hash` записи и подписывается банком вместе с мандатом. Текст для человека — у банка. В ответах Платформы есть всегда."
           },
           "status": {
             "type": "string",
@@ -1149,6 +1178,13 @@ export const PAO_SCHEMAS: Record<string, unknown> = {
           "$ref": "#/components/schemas/Mandate"
         }
       },
+      "records": {
+        "type": "array",
+        "description": "Записи цепочки журнала согласий целиком, с первой (РП38 п. 7): по ним пересчитываются хэши и Mandate.hash, подпись банка в payload решения и отзыва проверяется его открытым ключом. Предмета нет — только subject_commitment",
+        "items": {
+          "$ref": "#/components/schemas/JournalRecord"
+        }
+      },
       "operations": {
         "type": "array",
         "items": {
@@ -1161,6 +1197,47 @@ export const PAO_SCHEMAS: Record<string, unknown> = {
           "OK",
           "BROKEN"
         ]
+      }
+    }
+  },
+  "JournalRecord": {
+    "type": "object",
+    "required": [
+      "seq",
+      "kind",
+      "ref",
+      "parent_ref",
+      "at",
+      "payload",
+      "prev_hash",
+      "hash"
+    ],
+    "properties": {
+      "seq": {
+        "type": "integer"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "parent_ref": {
+        "type": "string",
+        "nullable": true
+      },
+      "at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "payload": {
+        "type": "object"
+      },
+      "prev_hash": {
+        "type": "string"
+      },
+      "hash": {
+        "type": "string"
       }
     }
   },
