@@ -18,6 +18,10 @@
     "./catalog": {
       "types": "./dist/src/catalog/index.d.ts",
       "default": "./dist/src/catalog/index.js"
+    },
+    "./diag": {
+      "types": "./dist/src/diag/index.d.ts",
+      "default": "./dist/src/diag/index.js"
     }
   },
   "engines": {

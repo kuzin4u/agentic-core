@@ -162,3 +162,42 @@ const r = await checkLiveOffer(product, { sku: product.sku, quantity: 2, region:
   - `offer` — копия ответа: изменение объекта источника после проверки результат не меняет.
   - дата `checkedAt` проверяется по форме и `Date.parse`, а он нормализует несуществующие даты (`2026-02-30T00:00Z` → 2 марта, `T24:00` → следующий день); так же в `validateProduct`. Такая дата почти всегда отсекается окном свежести.
 - `compareLiveOffer(product, offer, req, options)` — то же сравнение синхронно, без сети, для ответа, полученного другим путём. Часы `now`, которые бросают или возвращают не число, здесь — ошибка вызова (исключение), а в `checkLiveOffer` — `LIVE_UNAVAILABLE`: источник там уже вызван, и результат должен быть кодом.
+
+## Реестр кодов отказов (К17, CO-ДГ; выпуск — v0.8.0)
+
+Каждый код отказа описывается записью одного формата во всех трёх репозиториях. Формат — подмодуль `@kuzin4u/agentic-core/diag`, основной вход его не реэкспортирует. Реестр кодов ПАО — `PAO_DIAG` в `/pao`; платформа (PS-ДГ) подключает его, а не пишет свой.
+
+```ts
+import { checkDiagRegistry, diagAction, type DiagRegistry } from "@kuzin4u/agentic-core/diag";
+import { PAO_DIAG } from "@kuzin4u/agentic-core/pao";
+
+// тест полноты в репозитории потребителя: код без записи — красный
+expect(checkDiagRegistry(MY_CODES, MY_REGISTRY)).toEqual([]);
+// получатель кода: неизвестный код (новая версия соседа) — "stop"
+const action = diagAction(PAO_DIAG, body.code);
+```
+
+- **Запись** `DiagEntry`, все поля обязательны:
+  - `code` — `^[A-Z][A-Z0-9_]*$`, равен ключу в реестре;
+  - `component` — кто выдаёт код: `core`, `pao`, `pi`, `platform`, `agent`;
+  - `source` — кто ошибся: непустой массив из `agent`, `platform`, `bank`, `merchant`, `client`, `environment`, без повторов;
+  - `action` — `stop`, `retry_same_key`, `after_fix`, `after_human`, `new_key`;
+  - `human`, `operator` — тексты по языкам, `ru` обязателен;
+  - `norm` — пункт норм или решение;
+  - `since` — с какой версии действует.
+- **`checkDiagRegistry(codes, registry, { langs })`** возвращает замечания кодами, без текста: `DIAG_MISSING`, `DIAG_EXTRA`, `DIAG_KEY_MISMATCH`, `DIAG_CODE_FORMAT`, `DIAG_ENUM`, `DIAG_EMPTY`. Языки `langs` (по умолчанию `["ru"]`) обязательны в обоих текстах; пустая строка на любом языке — `DIAG_EMPTY`. Повторы в `codes` не считаются ошибкой. Записи проверяются и тогда, когда пришли не из TypeScript.
+- **`diagAction(registry, code)`** возвращает `action` записи. Код не из реестра, ключ из прототипа (`toString`) и действие вне перечня дают `stop`.
+- **Тексты** — постоянные строки, без подстановок, персональных данных, путей с идентификаторами и бренда. В ответах и журналах передаётся только код, текст берётся из реестра в месте показа. Потребитель может показать свой текст поверх ядерного (например, с брендом), но `code`, `source` и `action` берёт из реестра ядра.
+- **`PAO_DIAG`** — 20 записей, по одной на код `ErrorCode` ПАО 1.4.0; тип `Record<ErrorCode, DiagEntry>`, поэтому пропуск кода не соберётся и в TypeScript.
+  - `action` равен `PAO_RETRY_ACTION[PAO_ERRORS[code].retry]`, тест сверяет каждую запись.
+  - `since` — `1.1.0`; у `REQUEST_INVALID` и `KEY_INVALID` — `1.3.0` (К11).
+  - **Нюанс.** Действия в стартовой таблице документа владельца от 18.10 местами расходятся с `retry` в `x-pao-errors`. В реестре стоит значение спецификации:
+    - `SIGNATURE_INVALID`, `IDEMPOTENCY_CONFLICT`, `KEY_INVALID` — `after_fix`;
+    - `AGENT_SUSPENDED` — `stop`;
+    - `MANDATE_EXPIRED` — `after_human`;
+    - `IDEMPOTENCY_REQUIRED` — `retry_same_key`.
+
+    Уточнения агента (у `KEY_INVALID` — новый ключ, не больше 3 раз подряд) записаны в текст для оператора и в реестр агента. Новых значений действия они не создают.
+  - `source` — первая оценка. Для кодов, которых нет в документе владельца, её дал Claude Code: `AGENT_UNKNOWN`, `AGENT_KEY_REVOKED`, `CREDENTIAL_INVALID`, `CREDENTIALS_FORBIDDEN`, `RATE_LIMITED` — `agent`; `LIMIT_EXCEEDED` — `bank`; `CONFIRMATION_REQUIRED` — `client`. Окончательно источник ставит владелец реестра.
+  - `norm` — у кодов без отдельного решения стоит `AGENT-PROTOCOL §6 (РП16)`.
+- **Дальше** (CO-ДГ, следующая сессия): коды `/catalog` (`LIVE_*`, A5, `XML_*`, `YML_*`) и общий формат отчёта самопроверки (К17 п. 8). Выпуск v0.8.0 — одним, вместе с ними.
