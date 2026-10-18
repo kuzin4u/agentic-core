@@ -36,7 +36,7 @@ describe("ПАО: спецификация и типы", () => {
     const sha = sha256Hex(readFileSync("spec/agent-protocol.yaml"));
     expect(sha).toBe(PAO_SPEC_SHA256);
     expect(readFileSync("spec/SOURCE.md", "utf8")).toContain(sha);
-    expect(PAO_VERSION).toBe("1.3.0");
+    expect(PAO_VERSION).toBe("1.4.0");
     execFileSync(process.execPath, ["scripts/gen-pao.mjs", "--check"], { stdio: "pipe" });
   });
 
@@ -48,6 +48,18 @@ describe("ПАО: спецификация и типы", () => {
     expect(validatePao({ $ref: "#/components/schemas/MandateRequest" }, REQ)).toEqual([]);
     expect(validatePao({ $ref: "#/components/schemas/MandateRequest" }, { ...REQ, amount_limit: 0, mode: "X" }))
       .toEqual(["$.amount_limit: меньше 1", '$.mode: "X" вне перечня']);
+  });
+
+  it("ПАО 1.4.0 (К16): agent_code в Mandate обязателен, revocation_order и records необязательны", () => {
+    const m = created(REQ);
+    const { agent_code: _, ...noCode } = m;
+    expect(validatePao({ $ref: "#/components/schemas/Mandate" }, m)).toEqual([]);
+    expect(validatePao({ $ref: "#/components/schemas/Mandate" }, { ...m, revocation_order: "bank:B1:revocation:v1" })).toEqual([]);
+    expect(validatePao({ $ref: "#/components/schemas/Mandate" }, noCode)).toEqual(["$.agent_code: обязательное поле"]);
+    const record = { seq: 1, kind: "MANDATE_CREATED", ref: "MND-1", parent_ref: null, at: "2026-10-18T00:00:00Z", payload: {}, prev_hash: "0", hash: "1" };
+    expect(validatePao({ $ref: "#/components/schemas/Evidence" }, { mandate_chain: [m], records: [record], integrity: "OK" })).toEqual([]);
+    expect(validatePao({ $ref: "#/components/schemas/Evidence" }, { records: [{ ...record, parent_ref: undefined }] }))
+      .toEqual(["$.records[0].parent_ref: обязательное поле"]);
   });
 });
 

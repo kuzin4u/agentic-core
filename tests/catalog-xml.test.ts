@@ -137,5 +137,5 @@ describe("разборщик XML (К14 п. 5)", () => {
     expect(await linearInWorker("xml", 1_000_000, 5000)).toEqual([
       "ok", "ok", "ok", "ok", "XML_SYNTAX", "XML_SYNTAX", "XML_SYNTAX", "ok", "XML_DOCTYPE", "XML_ENTITY", "XML_SYNTAX",
     ]);
-  });
+  }, 20_000); // запуск worker и загрузка модулей — вне бюджета: под нагрузкой машины 5 с vitest не хватало (П1.4)
 });

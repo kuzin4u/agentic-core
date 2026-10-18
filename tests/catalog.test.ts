@@ -176,10 +176,10 @@ describe("catalog: A5 — текст возврата против days", () => 
 describe("catalog: A5 — линейное время на тексте продавца (CodeQL js/polynomial-redos)", () => {
   it("цена: 200 000 символов цифр, разрядов, пробелов, знаков валюты — не дольше 2 с", async () => {
     expect(await linearInWorker("a5Price", 200_000)).toHaveLength(6);
-  });
+  }, 20_000); // бюджет — 2 с в worker; 20 с — на запуск worker под нагрузкой (П1.4)
   it("возврат: 200 000 символов цифр, повтора «возврат», пробелов — не дольше 2 с", async () => {
     expect(await linearInWorker("a5Returns", 200_000)).toHaveLength(5);
-  });
+  }, 20_000);
 });
 
 describe("catalog: подмодуль", () => {
