@@ -2,11 +2,11 @@
 
 | Файл | Источник | Где взят | sha-256 |
 |---|---|---|---|
-| `forks.json` — развилки Р-1…Р-76 (76), `exported` 2026-10-19 | Реестр развилок чата | PR #35, комментарий чата [#issuecomment-6274152731](https://github.com/kuzin4u/agentic-core/pull/35#issuecomment-6274152731) | `778e3abf8fd35233be24d86baecd69b8ced9baa9c8210fbfb0497c103d06d94f` |
+| `forks.json` — развилки Р-1…Р-86 (86), `exported` 2026-10-19 | Реестр развилок чата | PR #37, комментарий чата [#issuecomment-6275982097](https://github.com/kuzin4u/agentic-core/pull/37#issuecomment-6275982097) (прежняя копия Р-1…Р-76 — PR #35, #issuecomment-6274152731) | `d089c857f60d7324fcd765d874481cdaec71613b464d89a386a54aef34a956af` |
 | `conflicts.json` — конфликты К1…К20 пула (20) | agentic-ps-platform, `docs/reference/pul/29-konflikty.html`, коммит `0bc924e`, sha-256 файла `1f621c16416318205f9e100951f7bea5b0ba4ed866fd2bab94c5c1304bad6b4e` | извлечение ядром (сессия 18): из карточки конфликта — номер, название, стадия, состояние, стороны; `repo` — назначение К19 п. 6, в источнике его нет | `4529709e56cc6314c69b8fb82b20800782f620e97b15fbc8957a8afbe409d68f` |
 
 **`forks.json`** — побайтная копия содержимого блока `json` комментария, без ограждения: тело взято через
-`gh api repos/kuzin4u/agentic-core/issues/comments/6274152731` (поле `body`), байты между `` ```json\n `` и `\n``` ``,
+`gh api repos/kuzin4u/agentic-core/issues/comments/6275982097` (поле `body`), байты между `` ```json\n `` и `\n``` ``,
 без CR (решение владельца п. 6, ревью чата п. 3). Не копировать из браузера: лишние пробелы и переводы строк разведут хэш.
 
 **`conflicts.json`** — извлечённый список, а не копия HTML (К19, «Развилки»). Изменился `29-konflikty.html` — извлечь

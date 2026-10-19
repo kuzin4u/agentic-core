@@ -49,11 +49,11 @@ describe("К19 п. 5: полнота", () => {
   });
 
   it("реестр: Р-N → РЗ-N, К-N → КП-N; области репозиториев не пересекаются и покрывают весь реестр", () => {
-    expect(TRIAL_ITEMS.length).toBe(96);
+    expect(TRIAL_ITEMS.length).toBe(106);
     expect(TRIAL_ITEMS[0]).toMatchObject({ ref: "РЗ-1", kind: "fork", repo: "agentic-core" });
     expect(TRIAL_ITEMS.find((i) => i.ref === "КП-8")).toMatchObject({ kind: "conflict", title: "Цена изменилась после согласования", repo: "agentic-core" });
     const sizes = (["agentic-core", "agentic-ps-platform", "agentic-buyer-ref", "nsvr-settlement", "marketplace-api"] as const).map((r) => trialScope(r).length);
-    expect(sizes).toEqual([20, 47, 29, 0, 0]);
+    expect(sizes).toEqual([24, 53, 29, 0, 0]);
     expect(sizes.reduce((a, b) => a + b, 0)).toBe(TRIAL_ITEMS.length);
   });
 });
