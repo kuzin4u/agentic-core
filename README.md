@@ -70,7 +70,7 @@ await nonces.purge(); // по расписанию
 
 ## Каталог продавца (К8, с v0.6.0)
 
-Подмодуль `/catalog` — каноническая модель каталога: агент читает каталоги только в ней, формат продавца переводит коннектор. Основной вход её не реэкспортирует.
+Подмодуль `/catalog` — каноническая модель каталога: агент читает каталоги только в ней, формат продавца переводит коннектор. Основной вход её не реэкспортирует. Коды отказов подмодуля — в реестре `CATALOG_DIAG` формата `/diag` (с v0.8.0, раздел «Реестр кодов отказов»).
 
 - `CatalogShop` — `id`, `inn` (10 цифр — организация, 12 — ИП или самозанятый), `mcc`, `paymentMethods`, `deliveryRegions`, `returns { days, text }` (`days` = 0 — возврата нет, продовольственные товары); желательно — `readiness`, `fulfillmentRating` (0…1).
 - `CatalogProduct` — `sku`, поля сопоставления `gtin`, `brand`, `model` (обязательны в записи; `null` — у продавца нет, например выпечка без штрихкода) и `attributes`, `title`, `category`, `price: Money` (К9), `availability { inStock, quantity? }`, `delivery` — хотя бы один вариант `{ method: "DELIVERY" | "PICKUP", region?, minDays, maxDays, cost: Money }` (самовывоз — за 0), `updatedAt` (ISO 8601 с поясом); желательно — `description`, `images`.
@@ -200,4 +200,9 @@ const action = diagAction(PAO_DIAG, body.code);
     Уточнения агента (у `KEY_INVALID` — новый ключ, не больше 3 раз подряд) записаны в текст для оператора и в реестр агента. Новых значений действия они не создают.
   - `source` — по документу владельца. Для кодов, которых в нём нет, — решение владельца в PR #30: `AGENT_UNKNOWN`, `AGENT_KEY_REVOKED`, `CREDENTIALS_FORBIDDEN`, `RATE_LIMITED` — `agent`; `CREDENTIAL_INVALID` — `agent`, `bank`; `LIMIT_EXCEEDED` — `client`, `bank`; `CONFIRMATION_REQUIRED` — `client`.
   - `norm` — у кодов без отдельного решения стоит `AGENT-PROTOCOL §6 (РП16)`.
-- **Дальше** (CO-ДГ, следующая сессия): коды `/catalog` (`LIVE_*`, A5, `XML_*`, `YML_*`) и общий формат отчёта самопроверки (К17 п. 8). Выпуск v0.8.0 — одним, вместе с ними.
+- **`CATALOG_DIAG`** (`/catalog`) — 32 записи: 22 кода `CatalogIssueCode` (валидатор, `XML_*`, `YML_*`), 2 кода `A5SignalCode`, 8 кодов `LiveCheckCode`. Тип `Record<CatalogDiagCode, DiagEntry>`: пропуск кода не соберётся. Перечни кодов — `CATALOG_ISSUE_CODES`, `A5_SIGNAL_CODES`, `LIVE_CHECK_CODES`, все вместе — `CATALOG_DIAG_CODES`; тест полноты у потребителя — `checkDiagRegistry(CATALOG_DIAG_CODES, CATALOG_DIAG)`.
+  - `component: "core"`, `since: "0.6.0"` — все коды появились в v0.6.0 (К8, К14, К15).
+  - `source` — `merchant` (первая оценка документа владельца); у `LIVE_UNAVAILABLE` — `merchant`, `environment`: тайм-аут и сеть от продавца не отличить.
+  - `action`: ошибки фида и сигналы A5 — `after_fix` (исправляет продавец); `LIVE_UNAVAILABLE`, `LIVE_STALE` — `retry_same_key` (повтор проверки — решение потребителя, в ядре повторов нет, К15 п. 5); `LIVE_INVALID`, `LIVE_CURRENCY` — `after_fix`; `LIVE_PRICE_UP`, `LIVE_PRICE_DOWN`, `LIVE_QUANTITY` — `after_human` (спросить покупателя, К15 п. 4); `LIVE_OUT_OF_STOCK` — `stop`.
+  - **Нюанс.** Коды валидатора общие по имени (`REQUIRED`, `BAD_AMOUNT`, `BAD_CURRENCY`): `BAD_AMOUNT` и `BAD_CURRENCY` есть и у `MoneyError`, `HoldError` основного входа, но те в реестры не входят. С `PAO_DIAG` общих кодов нет — объединённый реестр `{ ...PAO_DIAG, ...CATALOG_DIAG }` записей не теряет (тест). Реестр потребителя, объединяемый с ядерными, должен проверять то же.
+- **Дальше** (CO-ДГ, эта сессия): общий формат отчёта самопроверки (К17 п. 8). Выпуск v0.8.0 — одним.
