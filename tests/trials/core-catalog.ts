@@ -214,7 +214,7 @@ const inner = (rejected: TrialSituation["rejected"]): TrialSituation => ({
 });
 
 async function subsetOutcome(actual: string, variant: string): Promise<TrialOutcome> {
-  const out = actual === "точно" ? { a: 1 } : actual === "другое" ? { a: 2 } : { a: 1, at: "2026-10-19T10:00:00Z" };
+  const out: TrialOutcome = actual === "точно" ? { a: 1 } : actual === "другое" ? { a: 2 } : { a: 1, at: "2026-10-19T10:00:00Z" };
   if (variant === "точное-равенство") return { passed: canonicalJson(out) === canonicalJson({ a: 1 }) };
   const r = await runTrials({ run: async () => out }, [inner([])], { mode: "sample", n: 1, seed: 1 }, { rejected: false });
   return { passed: r.failures.length === 0 };
