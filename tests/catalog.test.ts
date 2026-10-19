@@ -105,6 +105,16 @@ describe("catalog: товар", () => {
       expect(codes(validateProduct({ ...product(), updatedAt: u })), u).toEqual(["BAD_DATE $.updatedAt"]);
     }
     expect(validateProduct({ ...product(), updatedAt: "2026-10-17T06:00:00.123Z", description: "Описание", images: ["https://x/1.jpg"] })).toEqual([]);
+  });
+
+  it("дата обновления по календарю (К20 п. 1): Date.parse принимал, теперь BAD_DATE", () => {
+    for (const u of ["2026-02-30T09:00:00Z", "2026-02-29T09:00+03:00", "2100-02-29T09:00Z", "2026-06-31T09:00Z", "2026-10-17T24:00Z", "2026-10-17T09:60Z",
+      "2026-10-17T09:00:60Z", "2026-10-17T09:00+15:00", "2026-10-17T09:00-14:30", "2026-10-17T09:00+03:60", "2026-10-17T09:00+23:59"]) {
+      expect(codes(validateProduct({ ...product(), updatedAt: u })), u).toEqual(["BAD_DATE $.updatedAt"]);
+    }
+    for (const u of ["2024-02-29T09:00Z", "2000-02-29T09:00:00+03:00", "2026-10-17T23:59:59.5+14:00", "2026-10-17T00:00-12:00", "2026-10-17T09:00-00:00", "2026-10-17T09:00+05:45"]) {
+      expect(validateProduct({ ...product(), updatedAt: u }), u).toEqual([]);
+    }
     expect(codes(validateProduct({ ...product(), images: [""] }))).toEqual(["BAD_TYPE $.images[0]"]);
   });
 

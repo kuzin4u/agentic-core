@@ -34,12 +34,12 @@ describe("К19 п. 5: реестр развилок и конфликтов", ()
       expect(source).toContain(sha);
     }
     // побайтная копия комментария чата: хэш закреплён и здесь
-    expect(TRIAL_FORKS_SHA256).toBe("778e3abf8fd35233be24d86baecd69b8ced9baa9c8210fbfb0497c103d06d94f");
+    expect(TRIAL_FORKS_SHA256).toBe("d089c857f60d7324fcd765d874481cdaec71613b464d89a386a54aef34a956af");
     execFileSync(process.execPath, ["scripts/gen-trials.mjs", "--check"], { stdio: "pipe" });
   }, 30_000);
 
-  it("развилки Р-1…Р-76, конфликты К1…К20; каждый пункт назначен одному известному репозиторию", () => {
-    expect(TRIAL_FORKS.map((f) => f.id)).toEqual(Array.from({ length: 76 }, (_, i) => `Р-${i + 1}`));
+  it("развилки Р-1…Р-86, конфликты К1…К20; каждый пункт назначен одному известному репозиторию", () => {
+    expect(TRIAL_FORKS.map((f) => f.id)).toEqual(Array.from({ length: 86 }, (_, i) => `Р-${i + 1}`));
     expect(TRIAL_CONFLICTS.map((c) => c.id)).toEqual(Array.from({ length: 20 }, (_, i) => `К${i + 1}`));
     for (const e of [...TRIAL_FORKS, ...TRIAL_CONFLICTS]) expect(TRIAL_REPOS).toContain(e.repo);
   });
@@ -65,7 +65,7 @@ describe("К19 п. 5: реестр развилок и конфликтов", ()
     expect(genOn("forks.json", (d) => { d.forks[1].id = "Р-1"; })).toContain("DUPLICATE Р-1");
     expect(genOn("forks.json", (d) => { d.forks[1].id = "R-2"; })).toContain("FIELD R-2.id");
     expect(genOn("forks.json", (d) => { d.forks[1].repo = "agentic-buyer-app"; })).toContain("FIELD Р-2.repo");
-    expect(genOn("forks.json", (d) => { d.count = 75; })).toContain("COUNT 75 != 76");
+    expect(genOn("forks.json", (d) => { d.count = 85; })).toContain("COUNT 85 != 86");
     expect(genOn("conflicts.json", (d) => { d.conflicts[0].stage = "0"; })).toContain("FIELD К1.stage");
   }, 30_000); // 12 запусков node подряд: под нагрузкой машины 5 с vitest по умолчанию не хватает
 });

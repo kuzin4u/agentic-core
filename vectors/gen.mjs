@@ -73,6 +73,28 @@ const holds = [
   { op: ["release", "OP-4"], available: R(350000) },
   { op: ["commit", "OP-4", R(1000)], error: "BAD_STATE", available: R(350000) },
 ];
+// setLimit (К20 п. 3): отдельный сценарий на своём счёте, раздел holds не меняется; шаг проверяет available и account.
+const A = (limit, committed, reserved, version) => ({ limit, committed, reserved, version });
+const holds_set_limit = [
+  { op: ["open", "LIM-1", R(100000)], available: R(100000), account: A(100000, 0, 0, 0) },
+  { op: ["reserve", "LIM-1", R(60000), "L-1"], available: R(40000), account: A(100000, 0, 60000, 1) },
+  { op: ["commit", "L-1", R(20000)], available: R(40000), account: A(100000, 20000, 40000, 2) },
+  { op: ["setLimit", "LIM-1", R(150000)], available: R(90000), account: A(150000, 20000, 40000, 3) },
+  { op: ["setLimit", "LIM-1", R(150000)], available: R(90000), account: A(150000, 20000, 40000, 3) },
+  { op: ["setLimit", "LIM-1", R(59999)], error: "LIMIT_BELOW_USED", available: R(90000), account: A(150000, 20000, 40000, 3) },
+  { op: ["setLimit", "LIM-1", R(60000)], available: R(0), account: A(60000, 20000, 40000, 4) },
+  { op: ["reserve", "LIM-1", R(1), "L-2"], error: "INSUFFICIENT", available: R(0), account: A(60000, 20000, 40000, 4) },
+  { op: ["open", "LIM-1", R(100000)], error: "ACCOUNT_CONFLICT", available: R(0), account: A(60000, 20000, 40000, 4) },
+  { op: ["open", "LIM-1", R(60000)], available: R(0), account: A(60000, 20000, 40000, 4) },
+  { op: ["setLimit", "LIM-1", m(60000, "USD")], error: "CURRENCY_MISMATCH", available: R(0), account: A(60000, 20000, 40000, 4) },
+  { op: ["setLimit", "LIM-1", m(60000, "rub")], error: "BAD_CURRENCY", available: R(0), account: A(60000, 20000, 40000, 4) },
+  { op: ["setLimit", "LIM-1", R(-1)], error: "BAD_AMOUNT", available: R(0), account: A(60000, 20000, 40000, 4) },
+  { op: ["setLimit", "LIM-1", R(1.5)], error: "BAD_AMOUNT", available: R(0), account: A(60000, 20000, 40000, 4) },
+  { op: ["setLimit", "LIM-2", R(60000)], error: "UNKNOWN_ACCOUNT", available: R(0), account: A(60000, 20000, 40000, 4) },
+  { op: ["release", "L-1"], available: R(40000), account: A(60000, 20000, 0, 5) },
+  { op: ["setLimit", "LIM-1", R(0)], error: "LIMIT_BELOW_USED", available: R(40000), account: A(60000, 20000, 0, 5) },
+  { op: ["setLimit", "LIM-1", R(20000)], available: R(0), account: A(20000, 20000, 0, 6) },
+];
 // Слабые открытые ключи Ed25519 (К10): 32 байта точки в hex, ответ isWeakEd25519 — по построению, не из кода ядра.
 // Точки малого порядка — независимый список (как блок-лист libsodium); y ≥ p и x = 0 со знаковым битом — неканонические.
 const ed25519_weak_keys = [
@@ -98,7 +120,7 @@ const ed25519_weak_keys = [
   { point: "03" + "00".repeat(31), weak: false, why: "valid: y = 3, каноническая запись" },
   { point: "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", weak: false, why: "valid: RFC 8032 §7.1, тест 1" },
 ];
-const out = JSON.stringify({ version: 2, canonical, journal, journal_chain_genesis, money, holds, ed25519_weak_keys }, null, 2);
+const out = JSON.stringify({ version: 2, canonical, journal, journal_chain_genesis, money, holds, holds_set_limit, ed25519_weak_keys }, null, 2);
 // Число 15–19 цифр, проходящее проверку Луна, сканер ключей и реквизитов примет за номер карты — такие векторы не пишем.
 // Шаблон — как DIGITS в .claude/hooks/guard.py: отдельно стоящее число, допускаются пробел и дефис между цифрами.
 const luhn = (s) => [...s].reverse().reduce((a, c, i) => { let d = +c; if (i % 2) { d *= 2; if (d > 9) d -= 9; } return a + d; }, 0) % 10 === 0;

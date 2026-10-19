@@ -7,6 +7,7 @@ import {
   Outbox, Inbox, splitMoney, AsyncMemoryIdempotencyStore,
 } from "../src/index.js";
 import { decodePoint, timesEight, isIdentity, isWeakEd25519 } from "../src/ed25519.js";
+import { VECTOR_SECTIONS } from "./holds-vectors.js";
 
 const V = JSON.parse(readFileSync("vectors/vectors.json", "utf8"));
 
@@ -92,6 +93,12 @@ describe("журнал с хэш-цепочкой", () => {
   });
 });
 
+describe("векторы: разделы", () => {
+  it("каждый раздел vectors.json прогоняется — неизвестный раздел красный (К20 п. 3)", () => {
+    expect(Object.keys(V)).toEqual(VECTOR_SECTIONS);
+  });
+});
+
 describe("удержания: резерв → закрепление → освобождение", () => {
   it("сценарий из векторов", () => {
     const L = new HoldLedger();
@@ -103,7 +110,8 @@ describe("удержания: резерв → закрепление → осв
         if (op === "reserve") ids[args[2]] = L.reserve(args[0], args[1], args[2], args[3] ?? null).id;
         if (op === "commit") L.commit(ids[args[0]]!, args[1], args[2] ?? false);
         if (op === "release") L.release(ids[args[0]]!);
-        if (op === "expire") L.expire(args[0]);
+        else if (op === "expire") L.expire(args[0]);
+        else if (!["open", "reserve", "commit", "release"].includes(op)) throw new Error(`векторы holds: неизвестный шаг ${op}`);
         expect(step.error ?? null, JSON.stringify(step.op)).toBeNull();
       } catch (e) {
         expect((e as HoldError).code, JSON.stringify(step.op)).toBe(step.error);

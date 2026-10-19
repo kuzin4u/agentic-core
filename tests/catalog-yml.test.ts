@@ -106,6 +106,15 @@ describe("коннектор YML: ошибки перевода — коды и 
     expect(issues(feed(BASE, { date: "17.10.2026" }))).toEqual(["YML_DATE /yml_catalog/@date"]);
   });
 
+  it("дата по календарю (К20 п. 1): 30 февраля, 24:00, пояс +15:00 — YML_DATE; неверный offset — тоже", () => {
+    for (const date of ["2026-02-30 09:00", "2026-10-17 24:00", "2026-10-17T09:00+1500", "2026-10-17 09:00:60"]) {
+      expect(issues(feed(BASE, { date })), date).toEqual(["YML_DATE /yml_catalog/@date"]);
+    }
+    const x = parseYml(feed(BASE, { date: "2026-10-17 07:00" }), profile(), { exponent: 2, offset: "+15:00" });
+    expect(codes(x.issues)).toEqual(["YML_DATE /yml_catalog/@date"]);
+    expect(parseYml(feed(BASE, { date: "2024-02-29 07:00" }), profile(), OPT).products[0]!.updatedAt).toBe("2024-02-29T07:00+03:00");
+  });
+
   it("валюта, категория, количество, id, название", () => {
     expect(issues(feed(BASE.replace("RUB</currencyId>", "USD</currencyId>")))).toEqual([`YML_CURRENCY ${AT}/currencyId`]);
     expect(issues(feed(BASE.replace("<categoryId>1</categoryId>", "<categoryId>9</categoryId>")))).toEqual([`YML_CATEGORY ${AT}/categoryId`]);

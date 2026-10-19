@@ -751,6 +751,375 @@
       }
     }
   ],
+  "holds_set_limit": [
+    {
+      "op": [
+        "open",
+        "LIM-1",
+        {
+          "amount": 100000,
+          "currency": "RUB"
+        }
+      ],
+      "available": {
+        "amount": 100000,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 100000,
+        "committed": 0,
+        "reserved": 0,
+        "version": 0
+      }
+    },
+    {
+      "op": [
+        "reserve",
+        "LIM-1",
+        {
+          "amount": 60000,
+          "currency": "RUB"
+        },
+        "L-1"
+      ],
+      "available": {
+        "amount": 40000,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 100000,
+        "committed": 0,
+        "reserved": 60000,
+        "version": 1
+      }
+    },
+    {
+      "op": [
+        "commit",
+        "L-1",
+        {
+          "amount": 20000,
+          "currency": "RUB"
+        }
+      ],
+      "available": {
+        "amount": 40000,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 100000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 2
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-1",
+        {
+          "amount": 150000,
+          "currency": "RUB"
+        }
+      ],
+      "available": {
+        "amount": 90000,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 150000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 3
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-1",
+        {
+          "amount": 150000,
+          "currency": "RUB"
+        }
+      ],
+      "available": {
+        "amount": 90000,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 150000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 3
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-1",
+        {
+          "amount": 59999,
+          "currency": "RUB"
+        }
+      ],
+      "error": "LIMIT_BELOW_USED",
+      "available": {
+        "amount": 90000,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 150000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 3
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-1",
+        {
+          "amount": 60000,
+          "currency": "RUB"
+        }
+      ],
+      "available": {
+        "amount": 0,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 4
+      }
+    },
+    {
+      "op": [
+        "reserve",
+        "LIM-1",
+        {
+          "amount": 1,
+          "currency": "RUB"
+        },
+        "L-2"
+      ],
+      "error": "INSUFFICIENT",
+      "available": {
+        "amount": 0,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 4
+      }
+    },
+    {
+      "op": [
+        "open",
+        "LIM-1",
+        {
+          "amount": 100000,
+          "currency": "RUB"
+        }
+      ],
+      "error": "ACCOUNT_CONFLICT",
+      "available": {
+        "amount": 0,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 4
+      }
+    },
+    {
+      "op": [
+        "open",
+        "LIM-1",
+        {
+          "amount": 60000,
+          "currency": "RUB"
+        }
+      ],
+      "available": {
+        "amount": 0,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 4
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-1",
+        {
+          "amount": 60000,
+          "currency": "USD"
+        }
+      ],
+      "error": "CURRENCY_MISMATCH",
+      "available": {
+        "amount": 0,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 4
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-1",
+        {
+          "amount": 60000,
+          "currency": "rub"
+        }
+      ],
+      "error": "BAD_CURRENCY",
+      "available": {
+        "amount": 0,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 4
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-1",
+        {
+          "amount": -1,
+          "currency": "RUB"
+        }
+      ],
+      "error": "BAD_AMOUNT",
+      "available": {
+        "amount": 0,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 4
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-1",
+        {
+          "amount": 1.5,
+          "currency": "RUB"
+        }
+      ],
+      "error": "BAD_AMOUNT",
+      "available": {
+        "amount": 0,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 4
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-2",
+        {
+          "amount": 60000,
+          "currency": "RUB"
+        }
+      ],
+      "error": "UNKNOWN_ACCOUNT",
+      "available": {
+        "amount": 0,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 40000,
+        "version": 4
+      }
+    },
+    {
+      "op": [
+        "release",
+        "L-1"
+      ],
+      "available": {
+        "amount": 40000,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 0,
+        "version": 5
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-1",
+        {
+          "amount": 0,
+          "currency": "RUB"
+        }
+      ],
+      "error": "LIMIT_BELOW_USED",
+      "available": {
+        "amount": 40000,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 60000,
+        "committed": 20000,
+        "reserved": 0,
+        "version": 5
+      }
+    },
+    {
+      "op": [
+        "setLimit",
+        "LIM-1",
+        {
+          "amount": 20000,
+          "currency": "RUB"
+        }
+      ],
+      "available": {
+        "amount": 0,
+        "currency": "RUB"
+      },
+      "account": {
+        "limit": 20000,
+        "committed": 20000,
+        "reserved": 0,
+        "version": 6
+      }
+    }
+  ],
   "ed25519_weak_keys": [
     {
       "point": "0100000000000000000000000000000000000000000000000000000000000000",

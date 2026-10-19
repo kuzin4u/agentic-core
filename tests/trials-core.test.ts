@@ -10,7 +10,7 @@ describe("К19: испытания ядра", () => {
 
   it("полнота: каждый пункт agentic-core покрыт или вне испытаний с основанием", () => {
     expect(checkCoverage({ scope: trialScope("agentic-core"), situations: CORE_SITUATIONS, exclusions: CORE_EXCLUSIONS })).toEqual([]);
-    expect(trialScope("agentic-core").length).toBe(20);
+    expect(trialScope("agentic-core").length).toBe(24);
   });
 
   it("сетка: принятые решения проходят, отклонённые варианты проваливаются", async () => {
