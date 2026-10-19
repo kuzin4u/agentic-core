@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJson } from "../canonical.js";
 import { signRequest, type Signer } from "../signing.js";
+import type { PaoClientCode } from "./client-diag.js";
 import { PAO_ERRORS, PAO_OPERATIONS, type PaoOperations, type PaoOperationKey, type Error as PaoErrorBody, type ErrorCode } from "./types.js";
 
 export type RetryAdvice = PaoErrorBody["retry"];
@@ -12,16 +13,19 @@ export type PaoCallArgs<K extends PaoOperationKey> =
   Field<PaoOperations[K]["path"], "path"> & Field<PaoOperations[K]["query"], "query"> & Field<PaoOperations[K]["body"], "body"> &
   { idempotencyKey?: string };
 
-/** Отказ Платформы или транспорта после всех попыток. `status` 0 — ответа не было. */
+/** Отказ Платформы или транспорта после всех попыток. `status` 0 — ответа не было.
+ *  `clientCode` — отказ самого клиента (К18, реестр `PAO_CLIENT_DIAG`); `code` — только коды ПАО. */
 export class PaoCallError extends Error {
+  readonly clientCode?: PaoClientCode;
   constructor(
     readonly status: number,
     readonly body: PaoErrorBody | undefined,
     readonly attempts: number,
     readonly idempotencyKey?: string,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; clientCode?: PaoClientCode },
   ) {
-    super(body ? `${body.code}: ${body.message}` : `PAO_HTTP_${status}`, options);
+    super(options?.clientCode ?? (body ? `${body.code}: ${body.message}` : `PAO_HTTP_${status}`), options);
+    if (options?.clientCode) this.clientCode = options.clientCode;
   }
   get code(): ErrorCode | undefined { return this.body?.code; }
   /** Что делать вызывающему (AGENT-PROTOCOL.md §6, РП16): по x-pao-errors, если код и HTTP-статус совпали с таблицей, иначе из тела.
@@ -109,11 +113,19 @@ export class PaoClient {
           method: spec.method,
           headers: signed,
           body: spec.method === "GET" ? undefined : body,
+          // Перенаправлениям не следуем (К18 п. 1): подпись, заголовки агента и тело не уходят на другой хост.
+          redirect: "manual",
         });
       } catch (cause) {
         if (last) throw new PaoCallError(0, undefined, attempt, key, { cause });
         await this.o.sleep(this.o.backoffMs(attempt));
         continue;
+      }
+
+      // 3xx; `opaqueredirect` — так `manual` выглядит в браузере; `redirected` — `fetch` потребителя уже прошёл по перенаправлению.
+      if (res.redirected || res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) {
+        await res.body?.cancel().catch(() => {});
+        throw new PaoCallError(res.status, undefined, attempt, key, { clientCode: "PAO_CLIENT_REDIRECT" });
       }
 
       const text = await res.text();
