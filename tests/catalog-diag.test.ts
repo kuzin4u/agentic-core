@@ -20,10 +20,10 @@ describe("К17 п. 1: реестр CATALOG_DIAG", () => {
     }
   });
 
-  it("действия: фид и A5 — after_fix; живая проверка — по смыслу кода", () => {
+  it("действия: фид и A5 — after_fix; LIVE_* — по решению владельца 19.10 (PR #30)", () => {
     for (const c of [...CATALOG_ISSUE_CODES, ...A5_SIGNAL_CODES]) expect([c, CATALOG_DIAG[c].action]).toEqual([c, "after_fix"]);
     expect(Object.fromEntries(LIVE_CHECK_CODES.map((c) => [c, CATALOG_DIAG[c].action]))).toEqual({
-      LIVE_UNAVAILABLE: "retry_same_key", LIVE_INVALID: "after_fix", LIVE_STALE: "retry_same_key", LIVE_CURRENCY: "after_fix",
+      LIVE_UNAVAILABLE: "retry_same_key", LIVE_INVALID: "stop", LIVE_STALE: "retry_same_key", LIVE_CURRENCY: "stop",
       LIVE_PRICE_UP: "after_human", LIVE_PRICE_DOWN: "after_human", LIVE_OUT_OF_STOCK: "stop", LIVE_QUANTITY: "after_human",
     });
   });
