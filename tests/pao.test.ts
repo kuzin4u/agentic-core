@@ -227,6 +227,22 @@ describe("ПАО: клиент против заглушки", () => {
     expect(stub.violations).toEqual([]);
   });
 
+  it("запрос без подписи не отправляет заголовки агента; подписанный — отправляет (CO-1 агента, #31)", async () => {
+    const { signer } = newEd25519Signer("k-x");
+    const sent: Record<string, string>[] = [];
+    const fake: typeof fetch = async (_url, init) => {
+      sent.push(Object.fromEntries(Object.entries((init?.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v])));
+      return new Response("{}", { status: 200 });
+    };
+    const client = new PaoClient({ baseUrl: "http://h", agentCode: AGENT, signer, fetch: fake });
+    await client.call("GET /.well-known/pao-configuration", {});
+    await client.call("GET /pao/v1/agent", {});
+    const agentHeaders = (h: Record<string, string>) => Object.keys(h).filter((k) => ["x-agent-code", "x-timestamp", "x-nonce", "signature", "signature-input", "content-digest"].includes(k)).sort();
+    expect(agentHeaders(sent[0]!)).toEqual([]);
+    expect(agentHeaders(sent[1]!)).toEqual(["content-digest", "signature", "signature-input", "x-agent-code", "x-nonce", "x-timestamp"]);
+    expect(Object.values(sent[0]!)).not.toContain(AGENT);
+  });
+
   it("Retry-After: длинная плохая строка разбирается линейно, повтора нет", async () => {
     // Без тела ПАО повтор только по разобранному Retry-After; плохой заголовок — вызывающему, огромный — выше потолка.
     expect(await linearInWorker("retryAfter", 2_000_000)).toEqual([[429, 1], [429, 1], [429, 1]]);
