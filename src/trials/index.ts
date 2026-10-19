@@ -12,3 +12,5 @@ export {
   runTrials, replayCase, formatTrialFailure, TRIAL_UNSUPPORTED, DEFAULT_TIMEOUT_MS,
   type TrialStand, type TrialRunInput, type TrialRunOptions, type TrialFailure, type TrialReport, type TrialReplay,
 } from "./run.js";
+export { TRIAL_REPOS, type TrialRepo, type TrialFork, type TrialConflict, type TrialItem } from "./types.js";
+export { TRIAL_FORKS, TRIAL_CONFLICTS, TRIAL_FORKS_SHA256, TRIAL_CONFLICTS_SHA256 } from "./registry.js";

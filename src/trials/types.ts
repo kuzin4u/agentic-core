@@ -99,3 +99,33 @@ export function outcomeMatches(expected: TrialOutcome, actual: unknown): boolean
   }
   return true;
 }
+
+// Реестр развилок и конфликтов (К19 п. 5): каждый пункт назначен ровно одному репозиторию.
+
+export type TrialRepo = "agentic-core" | "agentic-ps-platform" | "agentic-buyer-ref" | "nsvr-settlement" | "marketplace-api";
+export const TRIAL_REPOS: readonly TrialRepo[] = ["agentic-core", "agentic-ps-platform", "agentic-buyer-ref", "nsvr-settlement", "marketplace-api"];
+
+/** Запись реестра развилок чата как есть: `id` — `Р-N` (ссылка в ситуациях — `РЗ-N`). */
+export interface TrialFork {
+  readonly id: string;
+  readonly question: string;
+  readonly chosen: string;
+  readonly rejected: string;
+  readonly decided_by: string;
+  readonly review: string | null;
+  readonly recorded_in: string;
+  readonly repo: TrialRepo;
+}
+
+/** Конфликт пула (`29-konflikty.html` платформы): `id` — `К-N` источника (ссылка — `КП-N`); `repo` — назначение К19 п. 6. */
+export interface TrialConflict {
+  readonly id: string;
+  readonly title: string;
+  readonly stage: number;
+  readonly status: string;
+  readonly parties: string;
+  readonly repo: TrialRepo;
+}
+
+/** Пункт полноты: `ref` — `РЗ-N` или `КП-N`. */
+export interface TrialItem { readonly ref: string; readonly kind: "fork" | "conflict"; readonly title: string; readonly repo: TrialRepo }

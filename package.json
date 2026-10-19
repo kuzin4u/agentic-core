@@ -39,6 +39,7 @@
     "check": "tsc --noEmit",
     "vectors": "node vectors/gen.mjs",
     "gen:pao": "node scripts/gen-pao.mjs",
+    "gen:trials": "node scripts/gen-trials.mjs",
     "scan:secrets": "python3 .claude/hooks/scan_secrets.py ."
   },
   "devDependencies": {
