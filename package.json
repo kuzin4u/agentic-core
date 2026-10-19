@@ -22,6 +22,10 @@
     "./diag": {
       "types": "./dist/src/diag/index.d.ts",
       "default": "./dist/src/diag/index.js"
+    },
+    "./trials": {
+      "types": "./dist/src/trials/index.d.ts",
+      "default": "./dist/src/trials/index.js"
     }
   },
   "engines": {
