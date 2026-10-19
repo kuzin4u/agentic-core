@@ -85,6 +85,7 @@ describe("checkLiveOffer: отказ при неясности", () => {
       { ...live(), price: undefined }, { ...live(), availability: { inStock: "yes" } },
       { ...live(), availability: { inStock: true, quantity: -1 } }, { ...live(), availability: { inStock: true, quantity: 1.5 } },
       { ...live(), checkedAt: "2026-10-17T11:59:50" }, { ...live(), checkedAt: "вчера" }, { ...live(), checkedAt: undefined },
+      { ...live(), checkedAt: "2026-10-17T24:00:00+03:00" }, { ...live(), checkedAt: "2026-02-30T11:59:50+03:00" }, // К20 п. 1
       Object.defineProperty(live(), "price", { get() { throw new Error("геттер"); } }),
     ];
     for (const [i, b] of bad.entries()) expect(await check(b), `вход ${i}`).toEqual({ ok: false, codes: ["LIVE_INVALID"], offer: null });

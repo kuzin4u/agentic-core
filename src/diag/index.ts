@@ -1,3 +1,5 @@
+import { isCalendarDateTime } from "../iso-date.js";
+
 /** Формат реестра кодов отказов (К17, CO-ДГ): запись, проверка полноты, действие по коду, отчёт самопроверки (п. 8); основной вход пакета их не реэкспортирует. */
 
 /** Кто выдаёт код: ядро, Платформа по ПАО, Платформа на порту участника (ПИ), Платформа вне протокола, агент. */
@@ -134,7 +136,7 @@ export type SelfCheckProblemCode =
 export interface SelfCheckProblem { code: SelfCheckProblemCode; check?: string; field?: string }
 
 const CHECK = /^[a-z][a-z0-9_.]*$/;
-// Только формат; календарь (30 февраля, 24:00) не проверяется — строгий разбор дат в v0.11.0 (К19).
+// Форма; компоненты — по календарю (`isCalendarDateTime`, К20 п. 1).
 const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 
 /**
@@ -147,7 +149,7 @@ export function checkSelfCheckReport(report: SelfCheckReport, registry: DiagRegi
   if (!DIAG_COMPONENTS.includes(report.component)) out.push({ code: "SELFCHECK_FIELD", field: "component" });
   if (!filled(report.version)) out.push({ code: "SELFCHECK_FIELD", field: "version" });
   const at: unknown = report.checked_at;
-  if (typeof at !== "string" || !UTC.test(at) || Number.isNaN(Date.parse(at))) out.push({ code: "SELFCHECK_FIELD", field: "checked_at" });
+  if (typeof at !== "string" || !UTC.test(at) || !isCalendarDateTime(at)) out.push({ code: "SELFCHECK_FIELD", field: "checked_at" });
   if (typeof report.ready !== "boolean") out.push({ code: "SELFCHECK_FIELD", field: "ready" });
   const checks: unknown = report.checks;
   if (!Array.isArray(checks) || checks.length === 0) { out.push({ code: "SELFCHECK_EMPTY", field: "checks" }); return out; }

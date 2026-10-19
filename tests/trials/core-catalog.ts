@@ -29,12 +29,15 @@ export const CORE_SITUATIONS: readonly TrialSituation[] = [
   {
     // Пересмотр Р-4 — v0.11.0 (строгий разбор дат): тогда ожидаемый исход и отклонённый вариант поменяются местами через /decision.
     id: "РЗ-4.checked_at", refs: ["РЗ-4"],
-    params: { at: ["2026-10-19T10:00:00.000Z", "2026-02-30T10:00:00.000Z", "2026-10-19T24:00:00Z", "2026-13-01T00:00:00Z", "2026-10-19T10:00:00+03:00"] },
+    params: {
+      at: ["2026-10-19T10:00:00.000Z", "2024-02-29T10:00:00Z", "2026-02-30T10:00:00.000Z", "2026-02-29T10:00:00Z", "2026-10-19T24:00:00Z",
+        "2026-12-31T23:59:60Z", "2026-13-01T00:00:00Z", "2026-10-19T10:00:00+03:00"],
+    },
     expect: [
-      { when: { at: ["2026-13-01T00:00:00Z", "2026-10-19T10:00:00+03:00"] }, outcome: { problems: ["SELFCHECK_FIELD"] } },
-      { outcome: { problems: [] } },
+      { when: { at: ["2026-10-19T10:00:00.000Z", "2024-02-29T10:00:00Z"] }, outcome: { problems: [] } },
+      { outcome: { problems: ["SELFCHECK_FIELD"] } },
     ],
-    rejected: [{ variant: "календарь", note: "Р-4: полная календарная проверка" }],
+    rejected: [{ variant: "только-формат", note: "Р-4 до К20: шаблон и Date.parse — 30 февраля и T24:00 принимаются" }],
   },
   {
     id: "РЗ-5.действия-LIVE", refs: ["РЗ-5"],
@@ -132,13 +135,9 @@ function selfCheck(report: SelfCheckReport, variant: string): TrialOutcome {
   return { problems };
 }
 
-/** Полная календарная проверка — как работало бы ядро при отклонённом варианте Р-4. */
-function calendarOk(at: string): boolean {
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{3})?Z$/.exec(at);
-  if (!m) return false;
-  const [y, mo, d, h, mi, s] = m.slice(1, 7).map(Number) as [number, number, number, number, number, number];
-  const dim = new Date(Date.UTC(y, mo, 0)).getUTCDate();
-  return mo >= 1 && mo <= 12 && d >= 1 && d <= dim && h <= 23 && mi <= 59 && s <= 59;
+/** «Только формат» — как ядро работало до К20 (отклонённый вариант Р-4): шаблон UTC и Date.parse не NaN. */
+function formatOnlyOk(at: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(at) && !Number.isNaN(Date.parse(at));
 }
 
 const DOCUMENT_TABLE: Record<string, string> = {
@@ -195,11 +194,10 @@ export const coreStand: TrialStand = {
         return selfCheck(report, variant);
       }
       case "РЗ-4.checked_at": {
-        if (variant !== "chosen" && variant !== "календарь") return TRIAL_UNSUPPORTED;
-        const report = { ...buildSelfCheckReport("core", "0.10.0", [{ check: "db.migrations", status: "ok" }]), checked_at: params.at as string };
-        const out = selfCheck(report, "chosen");
-        if (variant === "календарь" && !calendarOk(params.at as string)) return { problems: ["SELFCHECK_FIELD"] };
-        return out;
+        if (variant !== "chosen" && variant !== "только-формат") return TRIAL_UNSUPPORTED;
+        const report = { ...buildSelfCheckReport("core", "0.11.0", [{ check: "db.migrations", status: "ok" }]), checked_at: params.at as string };
+        if (variant === "только-формат" && formatOnlyOk(params.at as string)) return { problems: [] };
+        return selfCheck(report, "chosen");
       }
       case "РЗ-5.действия-LIVE":
         if (variant === "всё-стоп") return { action: "stop" };

@@ -52,13 +52,18 @@ describe("К17 п. 8: отчёт самопроверки", () => {
     expect(checkSelfCheckReport(null as unknown as SelfCheckReport, REG)).toEqual([{ code: "SELFCHECK_FIELD" }]);
   });
 
-  it("checked_at — только формат: без миллисекунд можно, Date.parse не NaN; календарь — v0.9.0", () => {
+  it("checked_at — форма и календарь (К20 п. 1): без миллисекунд можно", () => {
     expect(checkSelfCheckReport(report({ checked_at: "2026-10-19T08:00:00Z" }), REG)).toEqual([]);
     for (const at of ["2026-10-19 08:00:00Z", "2026-10-19T08:00:00.0Z", "2026-10-19", "2026-13-40T08:00:00Z", 0]) {
       expect([at, checkSelfCheckReport(report({ checked_at: at }), REG)]).toEqual([at, [{ code: "SELFCHECK_FIELD", field: "checked_at" }]]);
     }
-    // 30 февраля Date.parse принимает (переносит на 2 марта): строгий разбор — не в этом выпуске.
-    expect(checkSelfCheckReport(report({ checked_at: "2026-02-30T08:00:00Z" }), REG)).toEqual([]);
+    // Date.parse эти даты принимал (30 февраля → 2 марта, T24:00 → следующий день); с v0.11.0 — отказ.
+    for (const at of ["2026-02-30T08:00:00Z", "2026-02-29T08:00:00Z", "1900-02-29T08:00:00Z", "2026-04-31T08:00:00Z", "2026-10-19T24:00:00Z", "2026-10-19T08:60:00Z", "2026-12-31T23:59:60Z", "2026-00-10T08:00:00Z", "2026-10-00T08:00:00Z"]) {
+      expect([at, checkSelfCheckReport(report({ checked_at: at }), REG)]).toEqual([at, [{ code: "SELFCHECK_FIELD", field: "checked_at" }]]);
+    }
+    for (const at of ["2024-02-29T08:00:00Z", "2000-02-29T00:00:00.000Z", "2026-12-31T23:59:59.999Z", "2026-01-31T00:00:00Z"]) {
+      expect([at, checkSelfCheckReport(report({ checked_at: at }), REG)]).toEqual([at, []]);
+    }
   });
 
   it("SELFCHECK_CHECK_FORMAT и SELFCHECK_DUPLICATE", () => {

@@ -1,5 +1,6 @@
 import type { CatalogDelivery, CatalogDeliveryMethod, CatalogProduct, CatalogShop } from "./types.js";
 import type { CatalogIssue } from "./validate.js";
+import { isIsoDateTime } from "./date.js";
 import { childNamed, childrenNamed, parseXml, textOf, type XmlElement, type XmlLimits } from "./xml.js";
 
 /** Коннектор YML (К14): фид продавца → каноническая модель К8. Переводит формат, но не судит продавца:
@@ -161,10 +162,12 @@ function categoryPath(id: string | undefined, categories: Map<string, Category>,
   return cache.get(id) ?? undefined;
 }
 
-/** `yml_catalog@date` → ISO 8601 с часовым поясом: «2026-10-17 09:00» и «…T09:00+0300» понимаются; без пояса — `offset`. */
+/** `yml_catalog@date` → ISO 8601 с часовым поясом: «2026-10-17 09:00» и «…T09:00+0300» понимаются; без пояса — `offset`.
+ *  Компоненты и пояс (свой или `offset`) — по календарю (К20 п. 1), иначе `undefined` → `YML_DATE`. */
 function date(text: string | undefined, offset: string | undefined): string | undefined {
   const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)(Z|[+-]\d{2}:?\d{2})?$/.exec((text ?? "").trim());
   if (!m) return undefined;
   const tz = m[3] === undefined ? offset : m[3] === "Z" ? "Z" : `${m[3].slice(0, 3)}:${m[3].slice(-2)}`;
-  return tz === undefined ? undefined : `${m[1]}T${m[2]}${tz}`;
+  const iso = tz === undefined ? undefined : `${m[1]}T${m[2]}${tz}`;
+  return iso !== undefined && isIsoDateTime(iso) ? iso : undefined;
 }
