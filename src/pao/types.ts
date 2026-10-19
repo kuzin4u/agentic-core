@@ -343,6 +343,8 @@ export interface PaoOperations {
   };
 }
 export type PaoOperationKey = keyof PaoOperations;
+/** Операции без подписи (нет параметра Signature): клиент без подписанта допускает только их (К18 п. 4). */
+export type PaoUnsignedOperationKey = "GET /.well-known/pao-configuration";
 
 export interface PaoOperationSpec {
   method: string; path: string; signed: boolean; idempotent: boolean; success: number; errors: readonly number[];

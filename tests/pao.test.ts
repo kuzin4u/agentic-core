@@ -7,7 +7,7 @@ import { newEd25519Signer, sha256Hex, signRequest, type Signer } from "../src/in
 import * as core from "../src/index.js";
 import {
   PaoClient, PaoCallError, PaoStub, PAO_ERRORS, PAO_SPEC_SHA256, PAO_VERSION, validatePao,
-  type ErrorCode, type MandateRequest, type Mandate, type PaoClientOptions, type PaoStubOptions,
+  PAO_OPERATIONS, type ErrorCode, type MandateRequest, type Mandate, type PaoClientOptions, type PaoStubOptions, type PaoUnsignedOperationKey,
 } from "../src/pao/index.js";
 import { routePattern } from "../src/pao/route.js";
 import { linearInWorker } from "./linear.js";
@@ -524,5 +524,42 @@ describe("ПАО: клиент не следует перенаправлени�
     const e = await rejected(client.call("GET /pao/v1/agent", {}));
     expect([e.clientCode, e.status, e.attempts]).toEqual(["PAO_CLIENT_REDIRECT", 0, 1]);
     expect(inits.map((i) => i.redirect)).toEqual(["manual", "manual"]);
+  });
+});
+
+describe("ПАО: подписант необязателен (К18 п. 4, #32 п. 2)", () => {
+  it("перечень неподписанных операций — из спецификации: операции с signed false", () => {
+    const unsigned: PaoUnsignedOperationKey[] = ["GET /.well-known/pao-configuration"];
+    expect(Object.entries(PAO_OPERATIONS).filter(([, s]) => !s.signed).map(([k]) => k)).toEqual(unsigned);
+  });
+
+  it("без подписанта неподписанная операция работает против заглушки", async () => {
+    stub = new PaoStub({ agents: [] });
+    const client = new PaoClient({ baseUrl: await stub.start(), agentCode: AGENT });
+    const cfg = await client.call("GET /.well-known/pao-configuration", {});
+    expect(cfg.versions).toEqual(["v1"]);
+  });
+
+  it("подписанная операция без подписанта: не компилируется; в JS — PAO_CLIENT_SIGNER_MISSING до запроса в сеть", async () => {
+    let calls = 0;
+    const fake: typeof fetch = async () => { calls++; return new Response("{}"); };
+    const client = new PaoClient({ baseUrl: "http://h", agentCode: AGENT, fetch: fake });
+    // @ts-expect-error подписанная операция у клиента без подписанта
+    const e1 = await rejected(client.call("GET /pao/v1/agent", {}));
+    // @ts-expect-error то же для изменяющей операции
+    const e2 = await rejected(client.call("POST /pao/v1/mandates", { body: REQ }));
+    for (const e of [e1, e2]) {
+      expect([e.clientCode, e.message, e.status, e.attempts, e.code, e.retry]).toEqual(["PAO_CLIENT_SIGNER_MISSING", "PAO_CLIENT_SIGNER_MISSING", 0, 0, undefined, "never"]);
+    }
+    expect(calls).toBe(0);
+  });
+
+  it("с подписантом или из переменной PaoClientOptions — все операции, как в v0.8.0", async () => {
+    const { client } = await setup();
+    await client.call("GET /pao/v1/agent", {});
+    const opts: PaoClientOptions = { baseUrl: "http://h", agentCode: AGENT, fetch: async () => new Response("{}") };
+    const wide = new PaoClient(opts);
+    // По типам допустимо (подписант может быть), во время выполнения — отказ до сети.
+    expect((await rejected(wide.call("GET /pao/v1/agent", {}))).clientCode).toBe("PAO_CLIENT_SIGNER_MISSING");
   });
 });

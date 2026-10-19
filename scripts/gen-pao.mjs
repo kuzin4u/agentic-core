@@ -118,6 +118,9 @@ for (const o of ops) {
 }
 out.push("}");
 out.push("export type PaoOperationKey = keyof PaoOperations;");
+const unsigned = ops.filter((o) => !o.signed).map((o) => JSON.stringify(o.key));
+out.push("/** Операции без подписи (нет параметра Signature): клиент без подписанта допускает только их (К18 п. 4). */");
+out.push(`export type PaoUnsignedOperationKey = ${unsigned.length ? unsigned.join(" | ") : "never"};`);
 out.push("");
 out.push("export interface PaoOperationSpec {");
 out.push("  method: string; path: string; signed: boolean; idempotent: boolean; success: number; errors: readonly number[];");
