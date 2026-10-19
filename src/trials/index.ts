@@ -8,3 +8,7 @@ export {
 export { checkSituations, CHECK_ENUMERATE_LIMIT } from "./check.js";
 export { paramKeys, gridSizeOf, paramsAt, isExcluded, ruleFor } from "./grid.js";
 export { mulberry32, expandCases, caseByKey, TrialError, DEFAULT_MAX_CASES, type TrialMode, type TrialCase } from "./grid.js";
+export {
+  runTrials, replayCase, formatTrialFailure, TRIAL_UNSUPPORTED, DEFAULT_TIMEOUT_MS,
+  type TrialStand, type TrialRunInput, type TrialRunOptions, type TrialFailure, type TrialReport, type TrialReplay,
+} from "./run.js";
