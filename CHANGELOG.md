@@ -2,6 +2,21 @@
 
 Версии — по тегам `vX.Y.Z` на коммитах слияния `main`. До 1.0.0 ломающее изменение допускается минорной версией — только через `/decision` и с разделом «Переход» (К9 п. 8).
 
+## v0.10.0 — только добавление (матрица испытаний и эмулятор ситуаций, К19; Р-74)
+
+### Добавлено
+- **Подмодуль `/trials`** (`import … from "@kuzin4u/agentic-core/trials"`, К19). Основной вход его не реэкспортирует.
+  - Формат ситуации `TrialSituation` — только данные: `refs` (`РЗ-N` / `КП-N`), `params`, `exclude`, `expect` (правила `when`), `rejected` или `rejectedNone`; `outcomeMatches` — по подмножеству ключей. `checkSituations` — замечания `TRIALS_*` без текста.
+  - Сетка и выборка: `expandCases` (`grid` — до `maxCases`, `sample` — mulberry32 от обязательного зерна), ключ случая `<id>#<номер>`, `caseByKey`, `mulberry32`.
+  - Движок `runTrials(stand, situations, mode, options)` против порта `TrialStand` потребителя, режим «отклонённый вариант обязан провалиться» (`any` по умолчанию, `all`), `TRIAL_UNSUPPORTED`, `replayCase`, `formatTrialFailure`.
+  - Полнота `checkCoverage({ scope, situations, exclusions })`, `trialScope(repo)`, «вне испытаний» `TrialExclusion` с основаниями `TRIAL_EXCLUSION_BASES` (`legal`, `pilot`, `external`, `process`).
+  - Реестр `TRIAL_FORKS` (развилки Р-1…Р-76 чата, копия комментария PR #35, `778e3abf…`), `TRIAL_CONFLICTS` (К1…К20 пула, `0bc924e`), `TRIAL_ITEMS`, `TRIAL_REPOS`; источники — `src/trials/registry/SOURCE.md`, скрипт `npm run gen:trials`.
+- Каталог испытаний ядра (`tests/trials/`): область `agentic-core` покрыта — 12 пунктов ситуациями, 8 процессных — `process`.
+
+### Не изменилось
+- Основной вход, `/pao`, `/catalog`, `/diag`, векторы, SQL-миграции, `spec/`. `dependencies` пусты.
+- Строгий разбор дат перенесён в v0.11.0 (К19).
+
 ## v0.9.0 — клиент ПАО: перенаправления, необязательный подписант, коды клиента (К18; #32 агента)
 
 ### Добавлено

@@ -7,7 +7,7 @@ npm install
 npm test
 ```
 
-Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.9.0"` (после тега; v0.9.0 — клиент ПАО не следует перенаправлениям, подписант необязателен, реестр `PAO_CLIENT_DIAG`, К18; v0.8.0 — только добавление: `/diag`, реестры кодов отказов, отчёт самопроверки, К17; v0.7.0 — ПАО 1.4.0, для типов ломающий: `Mandate.agent_code` обязателен, К16; переход с 0.6.x, 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Реестр кодов отказов и отчёт самопроверки — `import … from "@kuzin4u/agentic-core/diag"` (К17, с v0.8.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
+Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.10.0"` (после тега; v0.10.0 — только добавление: подмодуль `/trials`, матрица испытаний и эмулятор ситуаций, К19; v0.9.0 — клиент ПАО не следует перенаправлениям, подписант необязателен, реестр `PAO_CLIENT_DIAG`, К18; v0.8.0 — только добавление: `/diag`, реестры кодов отказов, отчёт самопроверки, К17; v0.7.0 — ПАО 1.4.0, для типов ломающий: `Mandate.agent_code` обязателен, К16; переход с 0.6.x, 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Реестр кодов отказов и отчёт самопроверки — `import … from "@kuzin4u/agentic-core/diag"` (К17, с v0.8.0). Матрица испытаний — `import … from "@kuzin4u/agentic-core/trials"` (К19, с v0.10.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
 
 ## Каноническая сериализация (К12, с v0.5.0)
 
@@ -222,5 +222,44 @@ const action = diagAction(PAO_DIAG, body.code);
   - `buildSelfCheckReport(component, version, checks, now = new Date())` сам считает `ready` (нет ни одного `fail`; `warn` готовность не снимает), `checked_at` — `now.toISOString()`. Вход не проверяет.
   - `checkSelfCheckReport(report, registry)` — замечания `{ code, check?, field? }`: `SELFCHECK_EMPTY`, `SELFCHECK_FIELD`, `SELFCHECK_CHECK_FORMAT` (`^[a-z][a-z0-9_.]*$`), `SELFCHECK_DUPLICATE`, `SELFCHECK_CODE_MISSING` (`warn`/`fail` без кода), `SELFCHECK_CODE_FORBIDDEN` (код при `ok`), `SELFCHECK_CODE_UNKNOWN`, `SELFCHECK_READY_MISMATCH`. Пустой массив — отчёт корректен.
   - Реестр — свой или объединённый с ядерным (`{ ...PLATFORM_DIAG, ...PAO_DIAG }`); `component` записей с `component` отчёта не сверяется. Ключ из прототипа (`toString`) — `SELFCHECK_CODE_UNKNOWN`.
-  - **Нюанс.** `checked_at` проверяется только по формату: `YYYY-MM-DDTHH:MM:SS[.sss]Z` и `Date.parse` не `NaN`. Несуществующую дату, которую `Date.parse` переносит («30 февраля» → 2 марта), проверка пропускает; строгий разбор дат — v0.10.0. Смещение `+03:00` и дробь не из трёх цифр — замечание.
+  - **Нюанс.** `checked_at` проверяется только по формату: `YYYY-MM-DDTHH:MM:SS[.sss]Z` и `Date.parse` не `NaN`. Несуществующую дату, которую `Date.parse` переносит («30 февраля» → 2 марта), проверка пропускает; строгий разбор дат — v0.11.0. Смещение `+03:00` и дробь не из трёх цифр — замечание.
   - Свободного текста в отчёте нет: тексты человеку и оператору — из реестра по `code` в месте показа. Коды самопроверки ведёт каждый компонент в своём реестре; у ядра их нет. При `ready: false` компонент не принимает рабочий трафик, пишет отчёт одной строкой JSON и завершает запуск с ненулевым кодом — норма формата, исполняет потребитель. Отдача отчёта по сети — ПАО 1.5.0.
+
+## Матрица испытаний и эмулятор ситуаций (К19, с v0.10.0)
+
+Каждая развилка реестра чата (РЗ-N = Р-N реестра) и каждый конфликт пула (КП-N = К-N в `29-konflikty.html` платформы) попадают в тестовый контур: покрыты ситуацией или вынесены «вне испытаний» с основанием. Подмодуль `@kuzin4u/agentic-core/trials`, основной вход его не реэкспортирует. Ядро даёт формат, движок, полноту и реестр; ситуации и стенд — в репозитории своего решения, сквозные — у агента против стенда платформы.
+
+```ts
+import { checkSituations, checkCoverage, runTrials, trialScope, formatTrialFailure, TRIAL_UNSUPPORTED,
+  type TrialSituation, type TrialStand, type TrialExclusion } from "@kuzin4u/agentic-core/trials";
+
+const SITUATIONS: TrialSituation[] = [{
+  id: "КП-8.цена", refs: ["КП-8"], params: { delta: [-1, 0, 1] },
+  expect: [{ when: { delta: [0] }, outcome: { ok: true } }, { outcome: { ok: false } }],
+  rejected: [{ variant: "коридор", note: "КП-8: допуск в пределах коридора" }],
+}];
+const stand: TrialStand = { async run({ situation, params, variant, signal }) { /* свои вызовы */ return TRIAL_UNSUPPORTED; } };
+const EXCLUSIONS: TrialExclusion[] = [{ ref: "КП-11", basis: "process", reason: "экономика схемы, не код", recordedIn: "PS-…" }];
+
+expect(checkSituations(SITUATIONS)).toEqual([]);
+expect(checkCoverage({ scope: trialScope("agentic-ps-platform"), situations: SITUATIONS, exclusions: EXCLUSIONS })).toEqual([]);
+const report = await runTrials(stand, SITUATIONS, { mode: "grid" });       // или { mode: "sample", n, seed }
+expect(report.failures.map(formatTrialFailure)).toEqual([]);
+```
+
+- **Ситуация** — только данные: `refs` (`РЗ-N` / `КП-N`), `params` (`{ имя: [значения JSON] }`), `exclude` (частичные наборы), `expect` (первое правило, чьи `when` подходят), `rejected` (отклонённые варианты для стенда) или `rejectedNone` с основанием. Исход сравнивается по подмножеству ключей через `canonicalJson`: служебные поля стенда (время, идентификаторы) не мешают.
+- **Стенд** `TrialStand.run({ situation, refs, key, params, variant, signal })` — у потребителя; `variant` — `"chosen"` или имя отклонённого. Чистое состояние на каждый случай — забота стенда. Не умеет — `TRIAL_UNSUPPORTED` (`Symbol.for`, совпадает у двух копий пакета).
+- **Сетка и выборка.** `mode: "grid"` — все сочетания, больше `maxCases` (1000) — `TRIALS_GRID_TOO_LARGE`. `mode: "sample"` — `n` разных номеров, mulberry32 от обязательного `seed` (uint32). Ключ случая — `<id>#<номер в сетке>`, от зерна не зависит: `replayCase(stand, situation, key)` повторяет один случай.
+- **Отклонённый вариант обязан провалиться:** при `must: "any"` (по умолчанию) — разойтись с ожидаемым хотя бы на одном случае, при `"all"` — на каждом. Иначе `TRIALS_REJECTED_PASSED`: испытание не различает решения. Стенд не умеет вариант — `TRIALS_REJECTED_UNSUPPORTED`; это провал, а не пропуск.
+- **Полнота** `checkCoverage({ scope, situations, exclusions })`: пункт своей области покрыт или «вне испытаний» (`legal`, `pilot`, `external`, `process`; `reason` и `recordedIn` непусты), не то и другое сразу. Чужие пункты покрывать можно. Каждый пункт реестра назначен ровно одному репозиторию (`TRIAL_REPOS`), поэтому зелёная полнота в каждом — покрыто всё. Области: `agentic-core` 20, `agentic-ps-platform` 47, `agentic-buyer-ref` 29.
+- **Реестр** — `TRIAL_FORKS` (Р-1…Р-76), `TRIAL_CONFLICTS` (К1…К20), `TRIAL_ITEMS` (со ссылками РЗ/КП). Источники и хэши — `src/trials/registry/SOURCE.md`; `npm run gen:trials` строит `src/trials/registry.ts`, тест сверяет `--check`. Обновление развилок — новым комментарием чата в PR: копия через `gh api` побайтно, без правки руками.
+- Коды `TRIALS_*` (`TRIALS_CODES`) — без текстов и не в реестре `/diag`: это проверки каталога и прогона, а не отказы обмена. `formatTrialFailure` — одна техническая строка с ключом для повтора.
+- **Нюансы.**
+  - Ключи параметров нумеруются в порядке `canonicalJson` — `sort()` по единицам UTF-16; от порядка по кодовым точкам он отличается только для символов вне BMP. Первый ключ — старший разряд. Изменили ситуацию (значения, порядок) — номера случаев сдвинулись: для повтора старого случая передайте `params` из отчёта в `replayCase`.
+  - Выборка может не взять различающий случай — тогда `TRIALS_REJECTED_PASSED` при `any`. Это сигнал: добавьте различающее значение или берите сетку.
+  - Исключённые сочетания при выборке тянутся заново, не более `64·n + 1024` попыток: если исключено почти всё, случаев меньше `n` — число случаев в отчёте.
+  - `checkSituations` перебирает сетку на «сочетание без правила» только до 10 000 сочетаний (`CHECK_ENUMERATE_LIMIT`); больше — поймает прогон (`TRIALS_NO_EXPECT`).
+  - Отклонённые варианты прогоняются только по случаям с ожидаемым исходом.
+  - Предел времени (`timeoutMs`, 10 000) не останавливает стенд, а отменяет `signal`; стенд, который его не слушает, продолжает работать в фоне.
+  - `TRIALS_ID_DUPLICATE` — также пустой `id` и `id` с `#`; `TRIALS_PARAMS_EMPTY` — также значение не JSON.
+- Каталог ядра — `tests/trials/core-catalog.ts`: 11 ситуаций на 12 своих пунктов против настоящего кода (диагностика, клиент ПАО, A5, живая проверка цены), отклонённые варианты эмулированы поверх кода; 8 процессных развилок — `process`. РЗ-4 закрепляет «только формат» `checked_at` — при строгом разборе дат (v0.11.0) ожидание и отклонённый вариант поменяются местами.
