@@ -3,7 +3,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import pg from "pg";
 import { applyMigrations, PgHoldLedger, HoldError } from "../src/index.js";
-import { runHoldVectors } from "./holds-vectors.js";
+import { runHoldVectors, runSetLimitVectors } from "./holds-vectors.js";
+import { barrierClient } from "./pg-barrier.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const MAX = Number.MAX_SAFE_INTEGER;
@@ -32,6 +33,13 @@ describe.skipIf(!DATABASE_URL)("PostgreSQL: векторы holds", () => {
   const ctx = schema("vec");
   it("PgHoldLedger проходит векторы holds, как HoldLedger", async () => {
     await runHoldVectors(new PgHoldLedger(ctx.db));
+  });
+});
+
+describe.skipIf(!DATABASE_URL)("PostgreSQL: векторы holds_set_limit (К20 п. 3)", () => {
+  const ctx = schema("lim");
+  it("PgHoldLedger проходит holds_set_limit, как HoldLedger", async () => {
+    await runSetLimitVectors(new PgHoldLedger(ctx.db));
   });
 });
 
@@ -151,5 +159,29 @@ describe.skipIf(!DATABASE_URL)("PostgreSQL: конкурентность уде�
     await balanced(ctx.db, "mix");
     const a = await L().account("mix");
     expect(a.limit - a.committed - a.reserved).toBeGreaterThanOrEqual(0);
+  });
+
+  // К20 п. 3: условие «не ниже использованного» — в том же UPDATE, что меняет предел. Барьер держит ответы, пока не придут
+  // все 11: при проверке отдельным SELECT все проверки увидели бы пустой счёт, и сужение упёрлось бы в CHECK базы.
+  it("setLimit 50 000 одновременно с 10 резервами по 10 000 на счёт 100 000: либо предел 50 000 и ровно 5 резервов, либо LIMIT_BELOW_USED и 10", async () => {
+    await L().openAccount("lim", R(100_000));
+    const b = barrierClient(ctx.db, 11);
+    const B = new PgHoldLedger(b.client);
+    const [set, ...res] = await Promise.allSettled([B.setLimit("lim", R(50_000)), ...Array.from({ length: 10 }, (_, i) => B.reserve("lim", R(10_000), `lim-${i}`))]);
+    b.close();
+    expect(b.left()).toBe(0);
+    const ok = res.filter((o) => o.status === "fulfilled").length;
+    for (const o of res) if (o.status === "rejected") expect((o.reason as HoldError).code).toBe("INSUFFICIENT");
+    const a = await L().account("lim");
+    if (set.status === "fulfilled") expect([a.limit, ok, a.reserved]).toEqual([50_000, 5, 50_000]);
+    else expect([(set.reason as HoldError).code, a.limit, ok]).toEqual(["LIMIT_BELOW_USED", 100_000, 10]);
+    await balanced(ctx.db, "lim");
+  });
+
+  it("20 одновременных setLimit одним значением: предел меняется один раз (version +1), ответы одинаковы", async () => {
+    await L().openAccount("lim-same", R(100_000));
+    const out = await Promise.all(Array.from({ length: 20 }, () => L().setLimit("lim-same", R(150_000))));
+    for (const a of out) expect(a).toEqual(out[0]);
+    expect(await L().account("lim-same")).toMatchObject({ limit: 150_000, version: 1 });
   });
 });

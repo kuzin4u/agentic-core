@@ -66,6 +66,28 @@ export class PgHoldLedger implements AsyncHoldLedger {
     throw new Error("core_holds: openAccount не завершён за отведённое число попыток");
   }
 
+  /** Изменение предела (К20 п. 3): условие «не ниже использованного» и смена предела — в одном UPDATE под блокировкой
+   *  строки счёта; одновременный reserve ждёт её и перепроверяет свой остаток по новому пределу. Тот же предел —
+   *  оператор ничего не меняет, счёт возвращается чтением (version та же). */
+  async setLimit(id: string, limit: Money): Promise<Account> {
+    const n = units(limit, 0);
+    for (let i = 0; i < ATTEMPTS; i++) {
+      const r = await this.client.query<AccountRow>(
+        `UPDATE core_hold_accounts SET limit_amount = $2::bigint, version = version + 1
+         WHERE id = $1 AND currency = $3 AND committed + reserved <= $2::bigint AND limit_amount <> $2::bigint
+         RETURNING *`,
+        [id, n, limit.currency],
+      );
+      if (r.rows[0]) return toAccount(r.rows[0]);
+      // ничего не изменено: причина — тем же порядком проверок, что у HoldLedger
+      const a = await this.account(id);
+      if (limit.currency !== a.currency) throw new HoldError("CURRENCY_MISMATCH");
+      if (n < a.committed + a.reserved) throw new HoldError("LIMIT_BELOW_USED");
+      if (n === a.limit) return a;
+    }
+    throw new Error("core_holds: setLimit не завершён за отведённое число попыток");
+  }
+
   async account(id: string): Promise<Account> {
     const r = await this.client.query<AccountRow>("SELECT * FROM core_hold_accounts WHERE id = $1", [id]);
     if (!r.rows[0]) throw new HoldError("UNKNOWN_ACCOUNT");

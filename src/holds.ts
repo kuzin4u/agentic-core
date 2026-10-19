@@ -22,7 +22,7 @@ export interface Hold {
 export interface Account { id: string; currency: CurrencyCode; limit: number; committed: number; reserved: number; version: number; }
 
 export class HoldError extends Error {
-  constructor(public code: "INSUFFICIENT" | "UNKNOWN_ACCOUNT" | "UNKNOWN_HOLD" | "BAD_AMOUNT" | "BAD_STATE" | "REF_CONFLICT" | "CURRENCY_MISMATCH" | "ACCOUNT_CONFLICT" | "BAD_CURRENCY", msg?: string) { super(msg ?? code); }
+  constructor(public code: "INSUFFICIENT" | "UNKNOWN_ACCOUNT" | "UNKNOWN_HOLD" | "BAD_AMOUNT" | "BAD_STATE" | "REF_CONFLICT" | "CURRENCY_MISMATCH" | "ACCOUNT_CONFLICT" | "BAD_CURRENCY" | "LIMIT_BELOW_USED", msg?: string) { super(msg ?? code); }
 }
 
 export class HoldLedger {
@@ -31,7 +31,8 @@ export class HoldLedger {
   private byRef = new Map<string, string>();
   private seq = 0;
 
-  /** Открытие счёта. Повтор с тем же лимитом и валютой — прежний счёт без изменений; иначе ACCOUNT_CONFLICT (К9 п. 6). */
+  /** Открытие счёта. Повтор с тем же лимитом и валютой — прежний счёт без изменений; иначе ACCOUNT_CONFLICT (К9 п. 6).
+   *  После setLimit сверяется с текущим пределом (К20 п. 3). */
   openAccount(id: string, limit: Money): Account {
     const n = units(limit, 0);
     const prev = this.accounts.get(id);
@@ -41,6 +42,17 @@ export class HoldLedger {
     }
     const a = { id, currency: limit.currency, limit: n, committed: 0, reserved: 0, version: 0 };
     this.accounts.set(id, a);
+    return { ...a };
+  }
+
+  /** Изменение предела открытого счёта (К20 п. 3). Тот же предел — счёт без изменений; ниже committed + reserved —
+   *  LIMIT_BELOW_USED, ровно до использованного можно. Удержания не меняются. */
+  setLimit(id: string, limit: Money): Account {
+    const n = units(limit, 0);
+    const a = this.acc(id);
+    if (limit.currency !== a.currency) throw new HoldError("CURRENCY_MISMATCH");
+    if (n < a.committed + a.reserved) throw new HoldError("LIMIT_BELOW_USED");
+    if (n !== a.limit) { a.limit = n; a.version++; }
     return { ...a };
   }
 
@@ -116,6 +128,7 @@ export class HoldLedger {
 /** Удержания с асинхронным хранилищем (К6 п. 4, п. 10): те же операции, коды ошибок и векторы, что у HoldLedger. */
 export interface AsyncHoldLedger {
   openAccount(id: string, limit: Money): Promise<Account>;
+  setLimit(id: string, limit: Money): Promise<Account>;
   available(id: string): Promise<Money>;
   account(id: string): Promise<Account>;
   reserve(account: string, amount: Money, ref: string, expires_at?: number | null): Promise<Hold>;
@@ -129,6 +142,7 @@ export interface AsyncHoldLedger {
 export class AsyncMemoryHoldLedger implements AsyncHoldLedger {
   constructor(private ledger = new HoldLedger()) {}
   async openAccount(id: string, limit: Money) { return this.ledger.openAccount(id, limit); }
+  async setLimit(id: string, limit: Money) { return this.ledger.setLimit(id, limit); }
   async available(id: string) { return this.ledger.available(id); }
   async account(id: string) { return this.ledger.account(id); }
   async reserve(account: string, amount: Money, ref: string, expires_at: number | null = null) { return this.ledger.reserve(account, amount, ref, expires_at); }
