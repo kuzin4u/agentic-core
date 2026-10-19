@@ -7,7 +7,7 @@ npm install
 npm test
 ```
 
-Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.8.0"` (после тега; v0.8.0 — только добавление: `/diag`, реестры кодов отказов, отчёт самопроверки, К17; v0.7.0 — ПАО 1.4.0, для типов ломающий: `Mandate.agent_code` обязателен, К16; переход с 0.6.x, 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Реестр кодов отказов и отчёт самопроверки — `import … from "@kuzin4u/agentic-core/diag"` (К17, с v0.8.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
+Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.9.0"` (после тега; v0.9.0 — клиент ПАО не следует перенаправлениям, подписант необязателен, реестр `PAO_CLIENT_DIAG`, К18; v0.8.0 — только добавление: `/diag`, реестры кодов отказов, отчёт самопроверки, К17; v0.7.0 — ПАО 1.4.0, для типов ломающий: `Mandate.agent_code` обязателен, К16; переход с 0.6.x, 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Реестр кодов отказов и отчёт самопроверки — `import … from "@kuzin4u/agentic-core/diag"` (К17, с v0.8.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
 
 ## Каноническая сериализация (К12, с v0.5.0)
 
@@ -166,6 +166,15 @@ const r = await checkLiveOffer(product, { sku: product.sku, quantity: 2, region:
 ## Клиент ПАО: запрос без подписи (CO-1 агента, с v0.8.0)
 
 `PaoClient` (`/pao`) у операции без подписи (`GET /.well-known/pao-configuration`) не отправляет заголовки агента: `x-agent-code`, `x-timestamp`, `x-nonce`, `content-digest`, `signature-input`, `signature`. Запрос открытой конфигурации не раскрывает, кто спрашивает. Так требует передача от агента (#31; PR #27 agentic-buyer-ref, Р33 п. 10). До v0.8.0 первые три заголовка уходили и с неподписанным запросом. Подписанные операции не меняются.
+
+## Клиент ПАО: перенаправления и подписант (К18, с v0.9.0)
+
+- **Перенаправлениям не следует.** `PaoClient` передаёт в `fetch` параметр `redirect: "manual"` для всех операций. Ответ 3xx, ответ `opaqueredirect` (браузер) и ответ с `redirected === true` дают отказ `PaoCallError` с `clientCode: "PAO_CLIENT_REDIRECT"`, без повтора. `inspectResponse` при этом не вызывается. Так подпись и тело не уходят на чужой хост, а конфигурацию нельзя подменить (#32).
+  - **Нюанс.** Если свой `fetch` потребителя не учитывает `redirect` и сам проходит по перенаправлению, клиент это заметит по `redirected` и откажет, но запрос на чужой адрес к этому моменту уже ушёл. Свой `fetch` обязан передавать `redirect` дальше.
+  - **Нюанс.** `status` у отказа — код 3xx в Node; в браузере у `opaqueredirect` он равен 0.
+- **Код клиента.** Отказы самого клиента несут поле `clientCode` (`PaoClientCode`). Геттер `code` по-прежнему возвращает только коды ПАО (`ErrorCode`), так что `switch` по ним не ломается. Реестр — `PAO_CLIENT_DIAG` в формате `/diag`, `component: "core"`, действие `after_fix`; перечень кодов — `PAO_CLIENT_CODES`. Реестр `PAO_DIAG` не изменился: в нём ровно 20 кодов спецификации. Проверка полноты объединённого реестра: `checkDiagRegistry([...Object.keys(PAO_DIAG), ...PAO_CLIENT_CODES], { ...PAO_DIAG, ...PAO_CLIENT_DIAG })` → `[]`.
+- **Подписант необязателен.** Без `signer` метод `call` по типам принимает только `PaoUnsignedOperationKey`; сейчас это `GET /.well-known/pao-configuration`, перечень строит генератор из спецификации. Вызов подписанной операции не компилируется. В JS или при приведении типов вызов отклоняется с `clientCode: "PAO_CLIENT_SIGNER_MISSING"` до запроса в сеть (`status: 0`, `attempts: 0`).
+  - **Нюанс.** Клиент, собранный из переменной типа `PaoClientOptions`, по типам принимает все операции, потому что подписант там может быть. Тогда защищает только проверка во время выполнения.
 
 ## Реестр кодов отказов и отчёт самопроверки (К17, с v0.8.0)
 
