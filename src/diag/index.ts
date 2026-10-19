@@ -1,4 +1,4 @@
-/** Формат реестра кодов отказов (К17, CO-ДГ): запись, проверка полноты, действие по коду; основной вход пакета их не реэкспортирует. */
+/** Формат реестра кодов отказов (К17, CO-ДГ): запись, проверка полноты, действие по коду, отчёт самопроверки (п. 8); основной вход пакета их не реэкспортирует. */
 
 /** Кто выдаёт код: ядро, Платформа по ПАО, Платформа на порту участника (ПИ), Платформа вне протокола, агент. */
 export type DiagComponent = "core" | "pao" | "pi" | "platform" | "agent";
@@ -90,4 +90,86 @@ export function checkDiagRegistry(codes: readonly string[], registry: DiagRegist
 export function diagAction(registry: DiagRegistry, code: string): DiagAction {
   const a = Object.hasOwn(registry, code) ? registry[code]?.action : undefined;
   return a !== undefined && DIAG_ACTIONS.includes(a) ? a : "stop";
+}
+
+// Отчёт самопроверки при старте (К17 п. 8): «готов / не готов» и проверки с кодами из реестра, без свободного текста.
+
+export type SelfCheckStatus = "ok" | "warn" | "fail";
+export const SELF_CHECK_STATUSES: readonly SelfCheckStatus[] = ["ok", "warn", "fail"];
+
+export interface SelfCheckItem {
+  /** Машинное имя `^[a-z][a-z0-9_.]*$` (`db.migrations`), без повторов в отчёте. */
+  readonly check: string;
+  readonly status: SelfCheckStatus;
+  /** Код из реестра: обязателен при `warn` и `fail`, запрещён при `ok`. */
+  readonly code?: string;
+}
+
+export interface SelfCheckReport {
+  readonly component: DiagComponent;
+  readonly version: string;
+  /** ISO 8601 UTC, как `Date.prototype.toISOString`. */
+  readonly checked_at: string;
+  /** Нет ни одного `fail`; `warn` готовность не снимает. */
+  readonly ready: boolean;
+  readonly checks: readonly SelfCheckItem[];
+}
+
+/** Сборка отчёта: `ready` вычисляется, `checked_at` — из `now`. Вход не проверяется — для этого `checkSelfCheckReport`. */
+export function buildSelfCheckReport(component: DiagComponent, version: string, checks: readonly SelfCheckItem[], now: Date = new Date()): SelfCheckReport {
+  return { component, version, checked_at: now.toISOString(), ready: !checks.some((c) => c.status === "fail"), checks: [...checks] };
+}
+
+export type SelfCheckProblemCode =
+  | "SELFCHECK_EMPTY"          // `checks` пуст или не массив
+  | "SELFCHECK_FIELD"          // `component`, `version`, `checked_at`, `ready` или `status` не по формату
+  | "SELFCHECK_CHECK_FORMAT"   // `check` не `^[a-z][a-z0-9_.]*$`
+  | "SELFCHECK_DUPLICATE"      // `check` повторяется
+  | "SELFCHECK_CODE_MISSING"   // `warn` или `fail` без кода
+  | "SELFCHECK_CODE_FORBIDDEN" // код при `ok`
+  | "SELFCHECK_CODE_UNKNOWN"   // кода нет в реестре
+  | "SELFCHECK_READY_MISMATCH"; // `ready` не равен «нет `fail`»
+
+/** `check` — имя проверки, к которой относится замечание; `field` — поле отчёта или проверки. */
+export interface SelfCheckProblem { code: SelfCheckProblemCode; check?: string; field?: string }
+
+const CHECK = /^[a-z][a-z0-9_.]*$/;
+// Только формат; календарь (30 февраля, 24:00) не проверяется — строгий разбор дат в v0.9.0.
+const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+
+/**
+ * Проверка отчёта (К17 п. 8): пустой массив — отчёт корректен. Реестр — свой или объединённый с ядерным;
+ * `component` записей реестра с `component` отчёта не сверяется. Отчёт проверяется и тогда, когда пришёл не из TypeScript.
+ */
+export function checkSelfCheckReport(report: SelfCheckReport, registry: DiagRegistry): SelfCheckProblem[] {
+  const out: SelfCheckProblem[] = [];
+  if (typeof report !== "object" || report === null) return [{ code: "SELFCHECK_FIELD" }];
+  if (!DIAG_COMPONENTS.includes(report.component)) out.push({ code: "SELFCHECK_FIELD", field: "component" });
+  if (!filled(report.version)) out.push({ code: "SELFCHECK_FIELD", field: "version" });
+  const at: unknown = report.checked_at;
+  if (typeof at !== "string" || !UTC.test(at) || Number.isNaN(Date.parse(at))) out.push({ code: "SELFCHECK_FIELD", field: "checked_at" });
+  if (typeof report.ready !== "boolean") out.push({ code: "SELFCHECK_FIELD", field: "ready" });
+  const checks: unknown = report.checks;
+  if (!Array.isArray(checks) || checks.length === 0) { out.push({ code: "SELFCHECK_EMPTY", field: "checks" }); return out; }
+  const seen = new Set<string>();
+  let fail = false;
+  for (const item of checks as unknown[]) {
+    if (typeof item !== "object" || item === null) { out.push({ code: "SELFCHECK_FIELD", field: "checks" }); continue; }
+    const { check, status, code } = item as Record<string, unknown>;
+    const name = typeof check === "string" ? check : undefined;
+    if (name === undefined || !CHECK.test(name)) out.push({ code: "SELFCHECK_CHECK_FORMAT", check: name, field: "check" });
+    else if (seen.has(name)) out.push({ code: "SELFCHECK_DUPLICATE", check: name, field: "check" });
+    else seen.add(name);
+    if (!SELF_CHECK_STATUSES.includes(status as SelfCheckStatus)) { out.push({ code: "SELFCHECK_FIELD", check: name, field: "status" }); continue; }
+    if (status === "fail") fail = true;
+    if (status === "ok") {
+      if (code !== undefined) out.push({ code: "SELFCHECK_CODE_FORBIDDEN", check: name, field: "code" });
+    } else if (!filled(code)) {
+      out.push({ code: "SELFCHECK_CODE_MISSING", check: name, field: "code" });
+    } else if (!Object.hasOwn(registry, code as string)) {
+      out.push({ code: "SELFCHECK_CODE_UNKNOWN", check: name, field: "code" });
+    }
+  }
+  if (typeof report.ready === "boolean" && report.ready === fail) out.push({ code: "SELFCHECK_READY_MISMATCH", field: "ready" });
+  return out;
 }
