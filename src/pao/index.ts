@@ -4,3 +4,4 @@ export * from "./validate.js";
 export * from "./client.js";
 export * from "./stub.js";
 export * from "./diag.js";
+export * from "./client-diag.js";

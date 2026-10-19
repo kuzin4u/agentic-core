@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJson } from "../canonical.js";
 import { signRequest, type Signer } from "../signing.js";
-import { PAO_ERRORS, PAO_OPERATIONS, type PaoOperations, type PaoOperationKey, type Error as PaoErrorBody, type ErrorCode } from "./types.js";
+import type { PaoClientCode } from "./client-diag.js";
+import { PAO_ERRORS, PAO_OPERATIONS, type PaoOperations, type PaoOperationKey, type PaoUnsignedOperationKey, type Error as PaoErrorBody, type ErrorCode } from "./types.js";
 
 export type RetryAdvice = PaoErrorBody["retry"];
 
@@ -12,16 +13,19 @@ export type PaoCallArgs<K extends PaoOperationKey> =
   Field<PaoOperations[K]["path"], "path"> & Field<PaoOperations[K]["query"], "query"> & Field<PaoOperations[K]["body"], "body"> &
   { idempotencyKey?: string };
 
-/** Отказ Платформы или транспорта после всех попыток. `status` 0 — ответа не было. */
+/** Отказ Платформы или транспорта после всех попыток. `status` 0 — ответа не было.
+ *  `clientCode` — отказ самого клиента (К18, реестр `PAO_CLIENT_DIAG`); `code` — только коды ПАО. */
 export class PaoCallError extends Error {
+  readonly clientCode?: PaoClientCode;
   constructor(
     readonly status: number,
     readonly body: PaoErrorBody | undefined,
     readonly attempts: number,
     readonly idempotencyKey?: string,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; clientCode?: PaoClientCode },
   ) {
-    super(body ? `${body.code}: ${body.message}` : `PAO_HTTP_${status}`, options);
+    super(options?.clientCode ?? (body ? `${body.code}: ${body.message}` : `PAO_HTTP_${status}`), options);
+    if (options?.clientCode) this.clientCode = options.clientCode;
   }
   get code(): ErrorCode | undefined { return this.body?.code; }
   /** Что делать вызывающему (AGENT-PROTOCOL.md §6, РП16): по x-pao-errors, если код и HTTP-статус совпали с таблицей, иначе из тела.
@@ -32,7 +36,8 @@ export class PaoCallError extends Error {
 export interface PaoClientOptions {
   baseUrl: string;
   agentCode: string;
-  signer: Signer;
+  /** Нужен для подписанных операций; без него клиент допускает только `PaoUnsignedOperationKey` (К18 п. 4). */
+  signer?: Signer;
   /** Всего попыток на вызов, включая первую. */
   maxAttempts?: number;
   /** Пауза перед попыткой n+1, если Платформа не прислала Retry-After. */
@@ -48,14 +53,19 @@ export interface PaoClientOptions {
   inspectResponse?: (r: { op: PaoOperationKey; status: number; headers: Headers; body: string }) => void;
 }
 
+/** Операции, которые клиент допускает по типам: собран без подписанта — только неподписанные (К18 п. 4).
+ *  Переменная типа `PaoClientOptions` (подписант может быть) — все операции, как в v0.8.0. */
+export type PaoAllowedOperationKey<O extends PaoClientOptions> =
+  "signer" extends keyof O ? (Signer extends O["signer"] ? PaoOperationKey : PaoUnsignedOperationKey) : PaoUnsignedOperationKey;
+
 /** Клиент ПАО: подпись каждого обращения, Idempotency-Key для изменяющих методов, повторы (РП16).
  *  Повтор с тем же Idempotency-Key, новыми nonce и подписью — при `retry: same_key` по x-pao-errors, сбое сети,
  *  429/503 с Retry-After без тела ПАО. Ожидание — не меньше Retry-After; Retry-After больше `maxRetryAfterSec`
  *  или исчерпаны попытки — отказ вызывающему. Остальные отказы — вызывающему как PaoCallError. */
-export class PaoClient {
-  private readonly o: Required<Omit<PaoClientOptions, "inspectResponse">> & Pick<PaoClientOptions, "inspectResponse">;
+export class PaoClient<O extends PaoClientOptions = PaoClientOptions> {
+  private readonly o: Required<Omit<PaoClientOptions, "inspectResponse" | "signer">> & Pick<PaoClientOptions, "inspectResponse" | "signer">;
 
-  constructor(opts: PaoClientOptions) {
+  constructor(opts: O) {
     this.o = {
       maxAttempts: 3,
       backoffMs: (n) => 200 * 2 ** (n - 1),
@@ -70,8 +80,11 @@ export class PaoClient {
     };
   }
 
-  async call<K extends PaoOperationKey>(op: K, args: PaoCallArgs<K>): Promise<PaoOperations[K]["response"]> {
+  async call<K extends PaoAllowedOperationKey<O>>(op: K, args: PaoCallArgs<K>): Promise<PaoOperations[K]["response"]> {
     const spec = PAO_OPERATIONS[op];
+    const signer = this.o.signer;
+    // Для JS и приведения типов: подписанная операция без подписанта — отказ до запроса в сеть (К18 п. 4).
+    if (spec.signed && !signer) throw new PaoCallError(0, undefined, 0, undefined, { clientCode: "PAO_CLIENT_SIGNER_MISSING" });
     const a = args as { path?: Record<string, string>; query?: Record<string, string | undefined>; body?: unknown; idempotencyKey?: string };
     const path = spec.path.replace(/\{([^}]+)\}/g, (_, name: string) => {
       const v = a.path?.[name];
@@ -98,8 +111,8 @@ export class PaoClient {
       } : {};
       if (key) headers["idempotency-key"] = key;
       if (spec.body !== undefined) headers["content-type"] = "application/json";
-      const signed = spec.signed
-        ? signRequest({ method: spec.method, path, query, headers, body }, this.o.signer).headers
+      const signed = spec.signed && signer
+        ? signRequest({ method: spec.method, path, query, headers, body }, signer).headers
         : headers;
       const last = attempt >= this.o.maxAttempts;
 
@@ -109,11 +122,19 @@ export class PaoClient {
           method: spec.method,
           headers: signed,
           body: spec.method === "GET" ? undefined : body,
+          // Перенаправлениям не следуем (К18 п. 1): подпись, заголовки агента и тело не уходят на другой хост.
+          redirect: "manual",
         });
       } catch (cause) {
         if (last) throw new PaoCallError(0, undefined, attempt, key, { cause });
         await this.o.sleep(this.o.backoffMs(attempt));
         continue;
+      }
+
+      // 3xx; `opaqueredirect` — так `manual` выглядит в браузере; `redirected` — `fetch` потребителя уже прошёл по перенаправлению.
+      if (res.redirected || res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) {
+        await res.body?.cancel().catch(() => {});
+        throw new PaoCallError(res.status, undefined, attempt, key, { clientCode: "PAO_CLIENT_REDIRECT" });
       }
 
       const text = await res.text();

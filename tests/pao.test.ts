@@ -1,11 +1,13 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { newEd25519Signer, sha256Hex, signRequest, type Signer } from "../src/index.js";
 import * as core from "../src/index.js";
 import {
   PaoClient, PaoCallError, PaoStub, PAO_ERRORS, PAO_SPEC_SHA256, PAO_VERSION, validatePao,
-  type ErrorCode, type MandateRequest, type Mandate, type PaoClientOptions, type PaoStubOptions,
+  PAO_OPERATIONS, type ErrorCode, type MandateRequest, type Mandate, type PaoClientOptions, type PaoStubOptions, type PaoUnsignedOperationKey,
 } from "../src/pao/index.js";
 import { routePattern } from "../src/pao/route.js";
 import { linearInWorker } from "./linear.js";
@@ -473,5 +475,91 @@ describe("ПАО: заглушка — регистрация ключа POST /p
     const s = await rejected(client.call("POST /pao/v1/agent/keys", { body: { alg: "ed25519", public_key: rfc }, idempotencyKey: "ik-s" }));
     expect([s.status, s.code]).toEqual([403, "AGENT_SUSPENDED"]);
     expect(me.keys).toHaveLength(1);
+  });
+});
+
+describe("ПАО: клиент не следует перенаправлениям (К18 п. 1, #32)", () => {
+  const servers: Server[] = [];
+  afterEach(async () => { await Promise.all(servers.splice(0).map((s) => new Promise((r) => s.close(r)))); });
+  const listen = async (h: (req: IncomingMessage, res: ServerResponse) => void): Promise<string> => {
+    const s = createServer(h);
+    servers.push(s);
+    await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
+    return `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+  };
+
+  it.each([301, 302, 303, 307, 308])("%i — отказ PAO_CLIENT_REDIRECT без повтора; на адрес из Location не ушло ни одного обращения", async (status) => {
+    const hits: { url?: string; headers: IncomingMessage["headers"] }[] = [];
+    const other = await listen((req, res) => { hits.push({ url: req.url, headers: req.headers }); res.end("{}"); });
+    let asked = 0;
+    const base = await listen((req, res) => { asked++; res.writeHead(status, { location: other + req.url }).end(); });
+    const { signer } = newEd25519Signer("k-r");
+    const seen: number[] = [];
+    const client = new PaoClient({ baseUrl: base, agentCode: AGENT, signer, sleep: async () => {}, inspectResponse: (r) => { seen.push(r.status); } });
+    for (const call of [
+      () => client.call("GET /.well-known/pao-configuration", {}),
+      () => client.call("GET /pao/v1/agent", {}),
+      () => client.call("POST /pao/v1/mandates", { body: REQ }),
+    ]) {
+      const e = await rejected(call());
+      expect([e.clientCode, e.message, e.status, e.attempts, e.code, e.body, e.retry]).toEqual(["PAO_CLIENT_REDIRECT", "PAO_CLIENT_REDIRECT", status, 1, undefined, undefined, "never"]);
+    }
+    expect([asked, hits.length, seen]).toEqual([3, 0, []]);
+  });
+
+  it("fetch потребителя прошёл по перенаправлению (redirected) или ответ opaqueredirect — тоже отказ", async () => {
+    const { signer } = newEd25519Signer("k-r");
+    let kind: "redirected" | "opaque" = "redirected";
+    const inits: RequestInit[] = [];
+    const fake: typeof fetch = async (_url, init) => {
+      inits.push(init!);
+      const res = new Response("{}", { status: 200 });
+      if (kind === "redirected") Object.defineProperty(res, "redirected", { value: true });
+      else { Object.defineProperty(res, "type", { value: "opaqueredirect" }); Object.defineProperty(res, "status", { value: 0 }); }
+      return res;
+    };
+    const client = new PaoClient({ baseUrl: "http://h", agentCode: AGENT, signer, fetch: fake, sleep: async () => {} });
+    expect((await rejected(client.call("GET /.well-known/pao-configuration", {}))).clientCode).toBe("PAO_CLIENT_REDIRECT");
+    kind = "opaque";
+    const e = await rejected(client.call("GET /pao/v1/agent", {}));
+    expect([e.clientCode, e.status, e.attempts]).toEqual(["PAO_CLIENT_REDIRECT", 0, 1]);
+    expect(inits.map((i) => i.redirect)).toEqual(["manual", "manual"]);
+  });
+});
+
+describe("ПАО: подписант необязателен (К18 п. 4, #32 п. 2)", () => {
+  it("перечень неподписанных операций — из спецификации: операции с signed false", () => {
+    const unsigned: PaoUnsignedOperationKey[] = ["GET /.well-known/pao-configuration"];
+    expect(Object.entries(PAO_OPERATIONS).filter(([, s]) => !s.signed).map(([k]) => k)).toEqual(unsigned);
+  });
+
+  it("без подписанта неподписанная операция работает против заглушки", async () => {
+    stub = new PaoStub({ agents: [] });
+    const client = new PaoClient({ baseUrl: await stub.start(), agentCode: AGENT });
+    const cfg = await client.call("GET /.well-known/pao-configuration", {});
+    expect(cfg.versions).toEqual(["v1"]);
+  });
+
+  it("подписанная операция без подписанта: не компилируется; в JS — PAO_CLIENT_SIGNER_MISSING до запроса в сеть", async () => {
+    let calls = 0;
+    const fake: typeof fetch = async () => { calls++; return new Response("{}"); };
+    const client = new PaoClient({ baseUrl: "http://h", agentCode: AGENT, fetch: fake });
+    // @ts-expect-error подписанная операция у клиента без подписанта
+    const e1 = await rejected(client.call("GET /pao/v1/agent", {}));
+    // @ts-expect-error то же для изменяющей операции
+    const e2 = await rejected(client.call("POST /pao/v1/mandates", { body: REQ }));
+    for (const e of [e1, e2]) {
+      expect([e.clientCode, e.message, e.status, e.attempts, e.code, e.retry]).toEqual(["PAO_CLIENT_SIGNER_MISSING", "PAO_CLIENT_SIGNER_MISSING", 0, 0, undefined, "never"]);
+    }
+    expect(calls).toBe(0);
+  });
+
+  it("с подписантом или из переменной PaoClientOptions — все операции, как в v0.8.0", async () => {
+    const { client } = await setup();
+    await client.call("GET /pao/v1/agent", {});
+    const opts: PaoClientOptions = { baseUrl: "http://h", agentCode: AGENT, fetch: async () => new Response("{}") };
+    const wide = new PaoClient(opts);
+    // По типам допустимо (подписант может быть), во время выполнения — отказ до сети.
+    expect((await rejected(wide.call("GET /pao/v1/agent", {}))).clientCode).toBe("PAO_CLIENT_SIGNER_MISSING");
   });
 });
