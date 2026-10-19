@@ -7,7 +7,7 @@ npm install
 npm test
 ```
 
-Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.7.0"` (после тега; v0.7.0 — ПАО 1.4.0, для типов ломающий: `Mandate.agent_code` обязателен, К16; переход с 0.6.x, 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
+Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.8.0"` (после тега; v0.8.0 — только добавление: `/diag`, реестры кодов отказов, отчёт самопроверки, К17; v0.7.0 — ПАО 1.4.0, для типов ломающий: `Mandate.agent_code` обязателен, К16; переход с 0.6.x, 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Реестр кодов отказов и отчёт самопроверки — `import … from "@kuzin4u/agentic-core/diag"` (К17, с v0.8.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
 
 ## Каноническая сериализация (К12, с v0.5.0)
 
@@ -70,7 +70,7 @@ await nonces.purge(); // по расписанию
 
 ## Каталог продавца (К8, с v0.6.0)
 
-Подмодуль `/catalog` — каноническая модель каталога: агент читает каталоги только в ней, формат продавца переводит коннектор. Основной вход её не реэкспортирует.
+Подмодуль `/catalog` — каноническая модель каталога: агент читает каталоги только в ней, формат продавца переводит коннектор. Основной вход её не реэкспортирует. Коды отказов подмодуля — в реестре `CATALOG_DIAG` формата `/diag` (с v0.8.0, раздел «Реестр кодов отказов и отчёт самопроверки»).
 
 - `CatalogShop` — `id`, `inn` (10 цифр — организация, 12 — ИП или самозанятый), `mcc`, `paymentMethods`, `deliveryRegions`, `returns { days, text }` (`days` = 0 — возврата нет, продовольственные товары); желательно — `readiness`, `fulfillmentRating` (0…1).
 - `CatalogProduct` — `sku`, поля сопоставления `gtin`, `brand`, `model` (обязательны в записи; `null` — у продавца нет, например выпечка без штрихкода) и `attributes`, `title`, `category`, `price: Money` (К9), `availability { inStock, quantity? }`, `delivery` — хотя бы один вариант `{ method: "DELIVERY" | "PICKUP", region?, minDays, maxDays, cost: Money }` (самовывоз — за 0), `updatedAt` (ISO 8601 с поясом); желательно — `description`, `images`.
@@ -123,7 +123,7 @@ const { shop, products, issues } = parseYml(feedBuffer, profile, { exponent: 2, 
 - Пределы: `limits.maxBytes` (по умолчанию 64 МиБ, считается до декодирования), `limits.maxDepth` (64), не больше 256 атрибутов у элемента — иначе `XML_LIMIT`; неверный предел — `RangeError`.
 - Символы вне XML 1.0 — C0, кроме табуляции, LF и CR; U+FFFE, U+FFFF; одиночные суррогаты — в тексте, атрибутах, CDATA и комментариях дают `XML_SYNTAX` со смещением (нулевой байт не примет PostgreSQL в `text`, управляющие символы попали бы в текст для модели агента). Проверка — до разбора, одним поиском по всему входу; числовая ссылка на такой символ (`&#1;`) — `XML_ENTITY`.
 - Упрощения подмножества: имя элемента — латиница, цифры, `_ : - .` и любые символы от U+00C0; `--` внутри комментария не проверяется; инструкции обработки пропускаются. Перевод строки и табуляция в значении атрибута — пробел, ссылка `&#10;` сохраняется.
-- Время разбора линейно: стек без рекурсии, поиск только внутри своего отрезка, пути категорий запоминаются. Тесты в worker с бюджетом 5 с: 1 000 000 символов XML (≈ 0,8 с; квадратичная поломка — ≈ 57 с) и цепочка из 20 000 категорий на 20 000 предложений. У тестов линейности `/catalog` явный тайм-аут vitest 20 с (с v0.7.0): запуск worker и загрузка модулей идут вне бюджета, и под нагрузкой машины 5 с по умолчанию не хватало; бюджет разбора в worker прежний — 5 с (A5 — 2 с), поломка по-прежнему красная по бюджету.
+- Время разбора линейно: стек без рекурсии, поиск только внутри своего отрезка, пути категорий запоминаются. Тесты в worker с бюджетом 5 с времени процессора (с П2.1 сессии 15; раньше — стенные часы): 1 000 000 символов XML (≈ 0,75 с; квадратичная поломка — ≈ 57 с) и цепочка из 20 000 категорий на 20 000 предложений. У тестов линейности `/catalog` явный тайм-аут vitest 20 с (с v0.7.0): запуск worker и загрузка модулей идут вне бюджета, и под нагрузкой машины 5 с по умолчанию не хватало; бюджет разбора в worker — 5 с процессора (A5 — 2 с). Расход считает основной поток по `process.cpuUsage()` процесса vitest раз в 50 мс (`threadCpuUsage` в Node 20.19 нет) и останавливает worker при превышении; под нагрузкой worker получает меньше процессора, и ложного красного нет. Поломки «поиск `&` по всему входу» (XML) и «без кэша путей категорий» (YML) красные по бюджету процессора. Остаточный риск — тайм-аут vitest 20 с по часам при замедлении больше чем в ≈ 25 раз. Бюджет — процессор всего процесса тестов; это верно при `pool: forks` (по умолчанию в vitest 5: один файл тестов — один процесс), при `pool: threads` в счёт вошли бы соседние файлы.
 
 **Коды** (`CatalogIssueCode`): `XML_SYNTAX`, `XML_ENTITY`, `XML_DOCTYPE`, `XML_ENCODING`, `XML_LIMIT` — путь `@смещение`; `YML_STRUCTURE` (корень не `yml_catalog` или нет `shop`, `offers`), `YML_DATE`, `YML_CURRENCY`, `YML_PRICE`, `YML_CATEGORY` (нет категории, разрыв или цикл `parentId`), `YML_NUMBER` (`count`, `days`), `REQUIRED` (`@id`, `name`, `price`, `@cost`) — путь в фиде. Ошибка предложения — оно не попадает в `products`; ошибка варианта доставки магазина — замечание, предложения переводятся без этого варианта.
 
@@ -162,3 +162,56 @@ const r = await checkLiveOffer(product, { sku: product.sku, quantity: 2, region:
   - `offer` — копия ответа: изменение объекта источника после проверки результат не меняет.
   - дата `checkedAt` проверяется по форме и `Date.parse`, а он нормализует несуществующие даты (`2026-02-30T00:00Z` → 2 марта, `T24:00` → следующий день); так же в `validateProduct`. Такая дата почти всегда отсекается окном свежести.
 - `compareLiveOffer(product, offer, req, options)` — то же сравнение синхронно, без сети, для ответа, полученного другим путём. Часы `now`, которые бросают или возвращают не число, здесь — ошибка вызова (исключение), а в `checkLiveOffer` — `LIVE_UNAVAILABLE`: источник там уже вызван, и результат должен быть кодом.
+
+## Клиент ПАО: запрос без подписи (CO-1 агента, с v0.8.0)
+
+`PaoClient` (`/pao`) у операции без подписи (`GET /.well-known/pao-configuration`) не отправляет заголовки агента: `x-agent-code`, `x-timestamp`, `x-nonce`, `content-digest`, `signature-input`, `signature`. Запрос открытой конфигурации не раскрывает, кто спрашивает. Так требует передача от агента (#31; PR #27 agentic-buyer-ref, Р33 п. 10). До v0.8.0 первые три заголовка уходили и с неподписанным запросом. Подписанные операции не меняются.
+
+## Реестр кодов отказов и отчёт самопроверки (К17, с v0.8.0)
+
+Каждый код отказа описывается записью одного формата во всех трёх репозиториях. Формат — подмодуль `@kuzin4u/agentic-core/diag`, основной вход его не реэкспортирует. Реестр кодов ПАО — `PAO_DIAG` в `/pao`; платформа (PS-ДГ) подключает его, а не пишет свой.
+
+```ts
+import { checkDiagRegistry, diagAction, type DiagRegistry } from "@kuzin4u/agentic-core/diag";
+import { PAO_DIAG } from "@kuzin4u/agentic-core/pao";
+
+// тест полноты в репозитории потребителя: код без записи — красный
+expect(checkDiagRegistry(MY_CODES, MY_REGISTRY)).toEqual([]);
+// получатель кода: неизвестный код (новая версия соседа) — "stop"
+const action = diagAction(PAO_DIAG, body.code);
+```
+
+- **Запись** `DiagEntry`, все поля обязательны:
+  - `code` — `^[A-Z][A-Z0-9_]*$`, равен ключу в реестре;
+  - `component` — кто выдаёт код: `core`, `pao`, `pi`, `platform`, `agent`;
+  - `source` — кто ошибся: непустой массив из `agent`, `platform`, `bank`, `merchant`, `client`, `environment`, без повторов;
+  - `action` — `stop`, `retry_same_key`, `after_fix`, `after_human`, `new_key`;
+  - `human`, `operator` — тексты по языкам, `ru` обязателен;
+  - `norm` — пункт норм или решение;
+  - `since` — с какой версии действует.
+- **`checkDiagRegistry(codes, registry, { langs })`** возвращает замечания кодами, без текста: `DIAG_MISSING`, `DIAG_EXTRA`, `DIAG_KEY_MISMATCH`, `DIAG_CODE_FORMAT`, `DIAG_ENUM`, `DIAG_EMPTY`. Языки `langs` (по умолчанию `["ru"]`) обязательны в обоих текстах; пустая строка на любом языке — `DIAG_EMPTY`. Повторы в `codes` не считаются ошибкой. Записи проверяются и тогда, когда пришли не из TypeScript.
+- **`diagAction(registry, code)`** возвращает `action` записи. Код не из реестра, ключ из прототипа (`toString`) и действие вне перечня дают `stop`.
+- **Тексты** — постоянные строки, без подстановок, персональных данных, путей с идентификаторами и бренда. В ответах и журналах передаётся только код, текст берётся из реестра в месте показа. Потребитель может показать свой текст поверх ядерного (например, с брендом), но `code`, `source` и `action` берёт из реестра ядра.
+- **`PAO_DIAG`** — 20 записей, по одной на код `ErrorCode` ПАО 1.4.0; тип `Record<ErrorCode, DiagEntry>`, поэтому пропуск кода не соберётся и в TypeScript.
+  - `action` равен `PAO_RETRY_ACTION[PAO_ERRORS[code].retry]`, тест сверяет каждую запись.
+  - `since` — `1.1.0`; у `REQUEST_INVALID` и `KEY_INVALID` — `1.3.0` (К11).
+  - **Нюанс.** Действия в стартовой таблице документа владельца от 18.10 местами расходятся с `retry` в `x-pao-errors`. В реестре стоит значение спецификации:
+    - `SIGNATURE_INVALID`, `IDEMPOTENCY_CONFLICT`, `KEY_INVALID` — `after_fix`;
+    - `AGENT_SUSPENDED` — `stop`;
+    - `MANDATE_EXPIRED` — `after_human`;
+    - `IDEMPOTENCY_REQUIRED` — `retry_same_key`.
+
+    Уточнения агента (у `KEY_INVALID` — новый ключ, не больше 3 раз подряд) записаны в текст для оператора и в реестр агента. Новых значений действия они не создают.
+  - `source` — по документу владельца. Для кодов, которых в нём нет, — решение владельца в PR #30: `AGENT_UNKNOWN`, `AGENT_KEY_REVOKED`, `CREDENTIALS_FORBIDDEN`, `RATE_LIMITED` — `agent`; `CREDENTIAL_INVALID` — `agent`, `bank`; `LIMIT_EXCEEDED` — `client`, `bank`; `CONFIRMATION_REQUIRED` — `client`.
+  - `norm` — у кодов без отдельного решения стоит `AGENT-PROTOCOL §6 (РП16)`.
+- **`CATALOG_DIAG`** (`/catalog`) — 32 записи: 22 кода `CatalogIssueCode` (валидатор, `XML_*`, `YML_*`), 2 кода `A5SignalCode`, 8 кодов `LiveCheckCode`. Тип `Record<CatalogDiagCode, DiagEntry>`: пропуск кода не соберётся. Перечни кодов — `CATALOG_ISSUE_CODES`, `A5_SIGNAL_CODES`, `LIVE_CHECK_CODES`, все вместе — `CATALOG_DIAG_CODES`; тест полноты у потребителя — `checkDiagRegistry(CATALOG_DIAG_CODES, CATALOG_DIAG)`.
+  - `component: "core"`, `since: "0.6.0"` — все коды появились в v0.6.0 (К8, К14, К15).
+  - `source` — `merchant` (первая оценка документа владельца); у `LIVE_UNAVAILABLE` — `merchant`, `environment`: тайм-аут и сеть от продавца не отличить.
+  - `action`: ошибки фида и сигналы A5 — `after_fix` (исправляет продавец); `LIVE_UNAVAILABLE`, `LIVE_STALE` — `retry_same_key` (повтор проверки — решение потребителя, в ядре повторов нет, К15 п. 5); `LIVE_INVALID`, `LIVE_CURRENCY` — `stop` (ответ продавца негоден, вызывающий его не исправит); `LIVE_PRICE_UP`, `LIVE_PRICE_DOWN`, `LIVE_QUANTITY` — `after_human` («новая корзина» после согласия покупателя — в тексте для оператора, К17 п. 2; К15 п. 4); `LIVE_OUT_OF_STOCK` — `stop`. Решение владельца 19.10 (PR #30); стартовая таблица документа владельца (`stop` у шести кодов, «новая корзина» у цены) расходится — документ поправит чат.
+  - **Нюанс.** Коды валидатора общие по имени (`REQUIRED`, `BAD_AMOUNT`, `BAD_CURRENCY`): `BAD_AMOUNT` и `BAD_CURRENCY` есть и у `MoneyError`, `HoldError` основного входа, но те в реестры не входят. С `PAO_DIAG` общих кодов нет — объединённый реестр `{ ...PAO_DIAG, ...CATALOG_DIAG }` записей не теряет (тест). Реестр потребителя, объединяемый с ядерными, должен проверять то же.
+- **Отчёт самопроверки (К17 п. 8)** — общий формат для старта платформы и агента: `SelfCheckReport { component, version, checked_at, ready, checks }`, проверка `SelfCheckItem { check, status: "ok" | "warn" | "fail", code? }`.
+  - `buildSelfCheckReport(component, version, checks, now = new Date())` сам считает `ready` (нет ни одного `fail`; `warn` готовность не снимает), `checked_at` — `now.toISOString()`. Вход не проверяет.
+  - `checkSelfCheckReport(report, registry)` — замечания `{ code, check?, field? }`: `SELFCHECK_EMPTY`, `SELFCHECK_FIELD`, `SELFCHECK_CHECK_FORMAT` (`^[a-z][a-z0-9_.]*$`), `SELFCHECK_DUPLICATE`, `SELFCHECK_CODE_MISSING` (`warn`/`fail` без кода), `SELFCHECK_CODE_FORBIDDEN` (код при `ok`), `SELFCHECK_CODE_UNKNOWN`, `SELFCHECK_READY_MISMATCH`. Пустой массив — отчёт корректен.
+  - Реестр — свой или объединённый с ядерным (`{ ...PLATFORM_DIAG, ...PAO_DIAG }`); `component` записей с `component` отчёта не сверяется. Ключ из прототипа (`toString`) — `SELFCHECK_CODE_UNKNOWN`.
+  - **Нюанс.** `checked_at` проверяется только по формату: `YYYY-MM-DDTHH:MM:SS[.sss]Z` и `Date.parse` не `NaN`. Несуществующую дату, которую `Date.parse` переносит («30 февраля» → 2 марта), проверка пропускает; строгий разбор дат — v0.9.0. Смещение `+03:00` и дробь не из трёх цифр — замечание.
+  - Свободного текста в отчёте нет: тексты человеку и оператору — из реестра по `code` в месте показа. Коды самопроверки ведёт каждый компонент в своём реестре; у ядра их нет. При `ready: false` компонент не принимает рабочий трафик, пишет отчёт одной строкой JSON и завершает запуск с ненулевым кодом — норма формата, исполняет потребитель. Отдача отчёта по сети — ПАО 1.5.0.

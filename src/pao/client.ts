@@ -90,11 +90,12 @@ export class PaoClient {
     const key = spec.idempotent ? (a.idempotencyKey ?? this.o.idempotencyKey()) : undefined;
 
     for (let attempt = 1; ; attempt++) {
-      const headers: Record<string, string> = {
+      // Без подписи (`GET /.well-known/pao-configuration`) заголовков агента нет: запрос не раскрывает, кто спрашивает (CO-1 агента).
+      const headers: Record<string, string> = spec.signed ? {
         "x-agent-code": this.o.agentCode,
         "x-timestamp": this.o.now().toISOString().slice(0, 19) + "Z",
         "x-nonce": this.o.nonce(),
-      };
+      } : {};
       if (key) headers["idempotency-key"] = key;
       if (spec.body !== undefined) headers["content-type"] = "application/json";
       const signed = spec.signed
