@@ -14,3 +14,4 @@ export {
 } from "./run.js";
 export { TRIAL_REPOS, type TrialRepo, type TrialFork, type TrialConflict, type TrialItem } from "./types.js";
 export { TRIAL_FORKS, TRIAL_CONFLICTS, TRIAL_FORKS_SHA256, TRIAL_CONFLICTS_SHA256 } from "./registry.js";
+export { TRIAL_ITEMS, trialScope, checkCoverage, type TrialExclusion, type TrialCoverageInput } from "./coverage.js";
