@@ -2,6 +2,23 @@
 
 Версии — по тегам `vX.Y.Z` на коммитах слияния `main`. До 1.0.0 ломающее изменение допускается минорной версией — только через `/decision` и с разделом «Переход» (К9 п. 8).
 
+## v0.8.0 — только добавление (система диагностики, К17; CO-1 агента)
+
+### Добавлено
+- **Подмодуль `/diag`** (`import … from "@kuzin4u/agentic-core/diag"`, К17). Основной вход его не реэкспортирует.
+  - Формат записи реестра кодов отказов `DiagEntry`: `code`, `component`, `source[]`, `action`, `human`, `operator` (тексты по языкам, `ru` обязателен), `norm`, `since`. Перечни `DIAG_COMPONENTS`, `DIAG_SOURCES`, `DIAG_ACTIONS`.
+  - `checkDiagRegistry(codes, registry, { langs })` — проверка полноты, замечания `DIAG_*` без текста.
+  - `diagAction(registry, code)` — для кода не из реестра возвращает `stop`.
+  - **Отчёт самопроверки (К17 п. 8):** `SelfCheckReport`, `SelfCheckItem`, `SelfCheckStatus`, `buildSelfCheckReport` (`ready` вычисляется: нет ни одного `fail`), `checkSelfCheckReport` — замечания `SELFCHECK_*`. `checked_at` проверяется только по формату, строгий разбор дат — в v0.9.0.
+- **`PAO_DIAG`** (`/pao`) — 20 записей, по одной на код `ErrorCode` ПАО 1.4.0; `action` — по `retry` из `x-pao-errors`. `PAO_RETRY_ACTION` — соответствие `retry` → действие.
+- **`CATALOG_DIAG`** (`/catalog`) — 32 записи на коды `CatalogIssueCode`, `A5SignalCode`, `LiveCheckCode`. Перечни `CATALOG_ISSUE_CODES`, `A5_SIGNAL_CODES`, `LIVE_CHECK_CODES`, `CATALOG_DIAG_CODES`; тип `CatalogDiagCode`. Действия `LIVE_*` — по решению владельца 19.10.
+
+### Изменено
+- **`PaoClient`: запрос без подписи (`GET /.well-known/pao-configuration`) больше не отправляет `x-agent-code`, `x-timestamp`, `x-nonce`** (CO-1 агента, #31). Подписанные операции не меняются. В ПАО 1.4.0 у `/.well-known/pao-configuration` нет параметров `AgentCode`, `X-Timestamp`, `X-Nonce` и подписи, `PaoStub` отвечает 200 и без них, поэтому «Перехода» нет.
+
+### Не изменилось
+- Основной вход, векторы, SQL-миграции, `spec/` (ПАО 1.4.0, `48bd3397…9ad9da`) — как в v0.7.0. `dependencies` пусты.
+
 ## v0.7.0 — ПАО 1.4.0, для типов ломающий (К16)
 
 ### Изменено

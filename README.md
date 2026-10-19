@@ -7,7 +7,7 @@ npm install
 npm test
 ```
 
-Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.7.0"` (после тега; v0.7.0 — ПАО 1.4.0, для типов ломающий: `Mandate.agent_code` обязателен, К16; переход с 0.6.x, 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
+Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.8.0"` (после тега; v0.8.0 — только добавление: `/diag`, реестры кодов отказов, отчёт самопроверки, К17; v0.7.0 — ПАО 1.4.0, для типов ломающий: `Mandate.agent_code` обязателен, К16; переход с 0.6.x, 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Реестр кодов отказов и отчёт самопроверки — `import … from "@kuzin4u/agentic-core/diag"` (К17, с v0.8.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
 
 ## Каноническая сериализация (К12, с v0.5.0)
 
@@ -167,7 +167,7 @@ const r = await checkLiveOffer(product, { sku: product.sku, quantity: 2, region:
 
 `PaoClient` (`/pao`) у операции без подписи (`GET /.well-known/pao-configuration`) не отправляет заголовки агента: `x-agent-code`, `x-timestamp`, `x-nonce`, `content-digest`, `signature-input`, `signature`. Запрос открытой конфигурации не раскрывает, кто спрашивает. Так требует передача от агента (#31; PR #27 agentic-buyer-ref, Р33 п. 10). До v0.8.0 первые три заголовка уходили и с неподписанным запросом. Подписанные операции не меняются.
 
-## Реестр кодов отказов и отчёт самопроверки (К17, CO-ДГ; выпуск — v0.8.0)
+## Реестр кодов отказов и отчёт самопроверки (К17, с v0.8.0)
 
 Каждый код отказа описывается записью одного формата во всех трёх репозиториях. Формат — подмодуль `@kuzin4u/agentic-core/diag`, основной вход его не реэкспортирует. Реестр кодов ПАО — `PAO_DIAG` в `/pao`; платформа (PS-ДГ) подключает его, а не пишет свой.
 
