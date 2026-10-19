@@ -72,9 +72,13 @@ export class PgHoldLedger implements AsyncHoldLedger {
   async setLimit(id: string, limit: Money): Promise<Account> {
     const n = units(limit, 0);
     for (let i = 0; i < ATTEMPTS; i++) {
+      // ПОЛОМКА П1.5а: проверка отдельным SELECT, UPDATE без условия остатка
+      const pre = await this.account(id);
+      if (limit.currency !== pre.currency) throw new HoldError("CURRENCY_MISMATCH");
+      if (n < pre.committed + pre.reserved) throw new HoldError("LIMIT_BELOW_USED");
       const r = await this.client.query<AccountRow>(
         `UPDATE core_hold_accounts SET limit_amount = $2::bigint, version = version + 1
-         WHERE id = $1 AND currency = $3 AND committed + reserved <= $2::bigint AND limit_amount <> $2::bigint
+         WHERE id = $1 AND currency = $3 AND limit_amount <> $2::bigint
          RETURNING *`,
         [id, n, limit.currency],
       );
