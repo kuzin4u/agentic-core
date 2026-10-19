@@ -134,7 +134,7 @@ export type SelfCheckProblemCode =
 export interface SelfCheckProblem { code: SelfCheckProblemCode; check?: string; field?: string }
 
 const CHECK = /^[a-z][a-z0-9_.]*$/;
-// Только формат; календарь (30 февраля, 24:00) не проверяется — строгий разбор дат в v0.9.0.
+// Только формат; календарь (30 февраля, 24:00) не проверяется — строгий разбор дат в v0.11.0 (К19).
 const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
 
 /**
