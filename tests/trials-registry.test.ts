@@ -36,7 +36,7 @@ describe("К19 п. 5: реестр развилок и конфликтов", ()
     // побайтная копия комментария чата: хэш закреплён и здесь
     expect(TRIAL_FORKS_SHA256).toBe("778e3abf8fd35233be24d86baecd69b8ced9baa9c8210fbfb0497c103d06d94f");
     execFileSync(process.execPath, ["scripts/gen-trials.mjs", "--check"], { stdio: "pipe" });
-  });
+  }, 30_000);
 
   it("развилки Р-1…Р-76, конфликты К1…К20; каждый пункт назначен одному известному репозиторию", () => {
     expect(TRIAL_FORKS.map((f) => f.id)).toEqual(Array.from({ length: 76 }, (_, i) => `Р-${i + 1}`));
@@ -67,5 +67,5 @@ describe("К19 п. 5: реестр развилок и конфликтов", ()
     expect(genOn("forks.json", (d) => { d.forks[1].repo = "agentic-buyer-app"; })).toContain("FIELD Р-2.repo");
     expect(genOn("forks.json", (d) => { d.count = 75; })).toContain("COUNT 75 != 76");
     expect(genOn("conflicts.json", (d) => { d.conflicts[0].stage = "0"; })).toContain("FIELD К1.stage");
-  });
+  }, 30_000); // 12 запусков node подряд: под нагрузкой машины 5 с vitest по умолчанию не хватает
 });
