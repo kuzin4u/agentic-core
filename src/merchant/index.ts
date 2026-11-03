@@ -3,3 +3,4 @@
 export * from "./jwks.js";
 export * from "./verifier.js";
 export * from "./package.js";
+export * from "./diag.js";
