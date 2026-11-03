@@ -1,14 +1,8 @@
 // К25 п. 2: строгий разбор каталога ключей агентов (JWKS, РП22 п. 1).
 import { describe, expect, it } from "vitest";
-import { createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
+import { createPublicKey, sign, verify } from "node:crypto";
 import { jwkSpki, okpThumbprint, parseAgentJwks } from "../src/merchant/index.js";
-
-export function agentKey(agent_code = "nspk:agent:a:v1", nbf = 1_700_000_000, exp = 1_900_000_000) {
-  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const x = publicKey.export({ format: "jwk" }).x as string;
-  const jwk = { kty: "OKP", crv: "Ed25519", x, alg: "EdDSA", use: "sig", kid: okpThumbprint(x), agent_code, nbf, exp };
-  return { jwk, privateKey, publicKey };
-}
+import { agentKey } from "./merchant-keys.js";
 
 describe("parseAgentJwks", () => {
   it("принимает ключ по форме; kid — отпечаток RFC 7638 (как у node:crypto)", () => {
