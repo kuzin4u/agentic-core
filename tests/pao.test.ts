@@ -389,6 +389,38 @@ describe("ПАО: заглушка по РП23 (порядок проверки,
     expect(stub.calls.map((c) => [c.status, c.kid, c.nonce])).toEqual([[401, "k-n", "nonce-1"], [200, "k-n", "nonce-1"], [401, "k-n", "nonce-1"]]);
   });
 
+  it("agentCode в журнале обращений — только после проверки подписи; два агента на одной заглушке (К24, #44)", async () => {
+    const B = "nspk:agent:buyref-02:v1";
+    const a = newEd25519Signer("k-a"), b = newEd25519Signer("k-b");
+    stub = new PaoStub({ agents: [
+      { agentCode: AGENT, keys: [{ kid: "k-a", alg: "ed25519", publicKey: a.publicKey }] },
+      { agentCode: B, status: "SUSPENDED", keys: [{ kid: "k-b", alg: "ed25519", publicKey: b.publicKey }] },
+    ] });
+    const baseUrl = await stub.start();
+    const ts = new Date().toISOString().slice(0, 19) + "Z";
+    const as = (signer: Signer, code: string, nonce: string) =>
+      signRequest({ method: "GET", path: "/pao/v1/agent", query: "", body: "", headers: { "x-agent-code": code, "x-timestamp": ts, "x-nonce": nonce } }, signer).headers;
+    expect((await send(baseUrl, "GET", "/pao/v1/agent", as(a.signer, AGENT, "a-1"))).status).toBe(200);
+    expect((await send(baseUrl, "GET", "/pao/v1/agent", as(b.signer, B, "b-1"))).status).toBe(200); // приостановленному GET доступен
+    const bSusp = as(b.signer, B, "b-2");
+    expect((await send(baseUrl, "POST", "/pao/v1/mandates", { ...bSusp, "idempotency-key": "ik-b" }, "")).status).toBe(401); // подпись на GET, не на POST
+    expect((await send(baseUrl, "GET", "/pao/v1/agent", as(a.signer, B, "x-1"))).status).toBe(401); // ключ A под кодом B — отказ подписи
+    expect((await send(baseUrl, "GET", "/pao/v1/agent", as(a.signer, "nspk:agent:nobody:v1", "x-2"))).status).toBe(401); // неизвестный
+    expect((await fetch(baseUrl + "/.well-known/pao-configuration")).status).toBe(200); // неподписанная операция
+    const sh = { ...signed(a.signer, "POST", "/pao/v1/mandates", "a-2", JSON.stringify(REQ)), "idempotency-key": "ik-a" };
+    stub["opts"].agents[0]!.status = "SUSPENDED";
+    expect((await send(baseUrl, "POST", "/pao/v1/mandates", sh, JSON.stringify(REQ))).status).toBe(403); // подпись его — поле есть
+    expect(stub.calls.map((c) => [c.status, c.code, c.agentCode])).toEqual([
+      [200, undefined, AGENT],
+      [200, undefined, B],
+      [401, "SIGNATURE_INVALID", undefined],
+      [401, "SIGNATURE_INVALID", undefined],
+      [401, "AGENT_UNKNOWN", undefined],
+      [200, undefined, undefined],
+      [403, "AGENT_SUSPENDED", AGENT],
+    ]);
+  });
+
   it("GET /pao/v1/agent: operator, class, level, rate_limit_per_min; только действующие ключи со сроками", async () => {
     const now = Date.parse("2026-10-16T12:00:00Z");
     const { signer, publicKey } = newEd25519Signer("k-live");

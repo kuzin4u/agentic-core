@@ -75,6 +75,9 @@ export interface PaoStubCall {
   status: number;
   code?: ErrorCode;
   kid?: string;
+  /** Код агента обращения — только после успешной проверки подписи (К24, #44): `x-agent-code`, по которому найден ключ.
+   *  Нет у неподписанных операций, неизвестного агента, отказа подписи и обращения вне спецификации. */
+  agentCode?: string;
   nonce?: string;
   idempotencyKey?: string;
   replayed: boolean;
@@ -181,6 +184,7 @@ export class PaoStub {
         },
       );
       if (!v.ok) return fail({ code: v.code });
+      call.agentCode = agentCode; // подпись агента проверена — и у приостановленного (К24)
       this.nonces.add(`${agentCode} ${nonce}`);
       if ((agent.status ?? "ACTIVE") !== "ACTIVE" && !STATUS_EXEMPT.has(op)) return fail({ code: "AGENT_SUSPENDED" });
     }
