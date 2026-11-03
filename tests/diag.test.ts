@@ -101,6 +101,17 @@ describe("К17 п. 5: реестр PAO_DIAG", () => {
     });
   });
 
+  it("AGENT_UNKNOWN: оператору — и отказ канала mTLS с перевыпуском сертификата; человеку, action, since — прежние (К23, #41)", () => {
+    const e = PAO_DIAG.AGENT_UNKNOWN;
+    expect(e.operator.ru).toBe(
+      "Агента нет в реестре Платформы или Платформа отклонила сертификат канала mTLS (песочница отвечает AGENT_UNKNOWN на любой отказ канала): " +
+      "проверьте agent_code и keyid подписи, регистрацию участника; если агент в реестре — перевыпустите сертификат канала: " +
+      "новый CSR, новый допуск, установка сертификата из решения.");
+    expect([e.human.ru, e.action, e.since, e.source]).toEqual(
+      ["Помощник не допущен к покупкам. Обратитесь в поддержку сервиса.", "stop", "1.1.0", ["agent"]]);
+    expect(e.norm).toContain("agentic-buyer-ref#88 п. 5");
+  });
+
   it("since: 1.3.0 — только REQUEST_INVALID и KEY_INVALID (К11)", () => {
     const late = Object.values(PAO_DIAG).filter((e) => e.since !== "1.1.0").map((e) => [e.code, e.since]);
     expect(late).toEqual([["REQUEST_INVALID", "1.3.0"], ["KEY_INVALID", "1.3.0"]]);
