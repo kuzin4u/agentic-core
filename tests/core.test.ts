@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { createPublicKey, verify as cryptoVerify } from "node:crypto";
+import { createHash, createPublicKey, verify as cryptoVerify } from "node:crypto";
 import {
   canonicalJson, sha256Hex, HashChainJournal, MemoryJournalStore, HoldLedger, HoldError,
-  IdempotencyStore, IdempotencyConflict, newEd25519Signer, signRequest, verifyRequest, ed25519Verifier,
+  IdempotencyStore, IdempotencyConflict, newEd25519Signer, signRequest, verifyRequest, verifyRequestAsync, contentDigest, ed25519Verifier,
   Outbox, Inbox, splitMoney, AsyncMemoryIdempotencyStore,
 } from "../src/index.js";
 import { decodePoint, timesEight, isIdentity, isWeakEd25519 } from "../src/ed25519.js";
@@ -177,6 +177,48 @@ describe("подпись обращений", () => {
     expect(verifyRequest({ ...s, body: '{"a":2}' }, key("ACTIVE"), { now, skewSec: 300, seenNonce: () => false }).ok).toBe(false);
     expect(verifyRequest(s, key("ACTIVE"), { now: now + 3600_000, skewSec: 300, seenNonce: () => false }).ok).toBe(false);
     expect(verifyRequest(s, key("REVOKED"), { now, skewSec: 300, seenNonce: () => false })).toEqual({ ok: false, code: "AGENT_KEY_REVOKED" });
+  });
+
+  describe("тело байтами (К22)", () => {
+    const sha = (b: Uint8Array) => "sha-256=:" + createHash("sha256").update(b).digest("base64") + ":";
+    const opts = { now, skewSec: 300, seenNonce: () => false };
+    it("строка и те же байты UTF-8 — один digest", () => {
+      expect(contentDigest(new TextEncoder().encode('{"a":"ё"}'))).toBe(contentDigest('{"a":"ё"}'));
+    });
+    it("не UTF-8: digest от байтов, а не от строки с U+FFFD; подпись по байтам проходит, по строке — нет", () => {
+      const bytes = Uint8Array.from([0x7b, 0x22, 0x61, 0x22, 0x3a, 0xff, 0xfe, 0x7d]); // {"a":<ff fe>}
+      expect(contentDigest(bytes)).toBe(sha(bytes));
+      expect(contentDigest(bytes)).not.toBe(contentDigest(Buffer.from(bytes).toString("utf8")));
+      const s = signRequest({ ...req, body: bytes }, signer);
+      expect(verifyRequest(s, key("ACTIVE"), opts)).toEqual({ ok: true, kid: "k-1" });
+      expect(verifyRequest({ ...s, body: Buffer.from(bytes).toString("utf8") }, key("ACTIVE"), opts)).toEqual({ ok: false, code: "SIGNATURE_INVALID" });
+    });
+    it("срез subarray — digest только своих байтов, не всего .buffer", () => {
+      const whole = Buffer.from('xx{"a":1}yy');
+      const view = whole.subarray(2, 9);
+      expect(contentDigest(view)).toBe(contentDigest('{"a":1}'));
+      const u8 = new Uint8Array(whole.buffer, whole.byteOffset + 2, 7);
+      expect(contentDigest(u8)).toBe(contentDigest('{"a":1}'));
+      const s = signRequest({ ...req, body: view }, signer);
+      expect(verifyRequest({ ...s, body: '{"a":1}' }, key("ACTIVE"), opts).ok).toBe(true);
+    });
+    it("BOM — часть тела: digest с BOM ≠ без BOM", () => {
+      const bom = Buffer.from([0xef, 0xbb, 0xbf, ...Buffer.from('{"a":1}')]);
+      expect(contentDigest(bom)).toBe(sha(bom));
+      expect(contentDigest(bom)).not.toBe(contentDigest('{"a":1}'));
+    });
+    it("verifyRequestAsync — тоже по байтам", async () => {
+      const bytes = Uint8Array.from([0xc3, 0x28]);
+      const s = signRequest({ ...req, body: bytes }, signer);
+      await expect(verifyRequestAsync(s, key("ACTIVE"), { now, skewSec: 300, seenNonce: async () => false })).resolves.toEqual({ ok: true, kid: "k-1" });
+      await expect(verifyRequestAsync({ ...s, body: Uint8Array.from([0xc3, 0x29]) }, key("ACTIVE"), { now, skewSec: 300, seenNonce: async () => false }))
+        .resolves.toEqual({ ok: false, code: "SIGNATURE_INVALID" });
+    });
+    it("signRequest сохраняет тип запроса: строковое тело остаётся string", () => {
+      const s = signRequest(req, signer);
+      const body: string = s.body; // проверка типов (npm run check)
+      expect(body).toBe('{"a":1}');
+    });
   });
 });
 

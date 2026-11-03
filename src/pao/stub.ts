@@ -35,6 +35,8 @@ export interface PaoStubAgent {
 
 /** Методы, доступные агенту в статусе SUSPENDED и EXCLUDED: по ним он узнаёт свой статус (РП23 п. 6.3). */
 const STATUS_EXEMPT: ReadonlySet<PaoOperationKey> = new Set(["GET /pao/v1/agent"]);
+/** Строгое декодирование тела (К22 п. 4): недопустимые байты — исключение, BOM остаётся в строке (как у Платформы). */
+const UTF8_STRICT = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** Отказ, который заглушка вернёт вместо ответа. Статус и `retry` по умолчанию — из x-pao-errors спецификации (`PAO_ERRORS`).
  *  `retryAfterSec` — заголовок Retry-After; у 429 и 503 по умолчанию `PaoStubOptions.retryAfterSec` (РП16). */
@@ -73,6 +75,9 @@ export interface PaoStubCall {
   status: number;
   code?: ErrorCode;
   kid?: string;
+  /** Код агента обращения — только после успешной проверки подписи (К24, #44): `x-agent-code`, по которому найден ключ.
+   *  Нет у неподписанных операций, неизвестного агента, отказа подписи и обращения вне спецификации. */
+  agentCode?: string;
   nonce?: string;
   idempotencyKey?: string;
   replayed: boolean;
@@ -128,7 +133,7 @@ export class PaoStub {
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
-    const text = Buffer.concat(chunks).toString("utf8");
+    const raw = Buffer.concat(chunks); // подпись — по байтам, декодирование — после неё (К22 п. 4)
     const url = new URL(req.url ?? "/", "http://stub");
     const method = (req.method ?? "GET").toUpperCase();
     const headers = Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : (v ?? "")]));
@@ -166,7 +171,7 @@ export class PaoStub {
       if (!agent) return fail({ code: "AGENT_UNKNOWN" });
       const now = this.now();
       const v = verifyRequest(
-        { method, path: url.pathname, query: url.search.replace(/^\?/, ""), headers, body: text },
+        { method, path: url.pathname, query: url.search.replace(/^\?/, ""), headers, body: raw },
         (k) => {
           const key = agent.keys.find((x) => x.kid === k);
           return key && { alg: key.alg, publicKey: key.publicKey, status: keyStatus(key, now) };
@@ -179,8 +184,16 @@ export class PaoStub {
         },
       );
       if (!v.ok) return fail({ code: v.code });
+      call.agentCode = agentCode; // подпись агента проверена — и у приостановленного (К24)
       this.nonces.add(`${agentCode} ${nonce}`);
       if ((agent.status ?? "ACTIVE") !== "ACTIVE" && !STATUS_EXEMPT.has(op)) return fail({ code: "AGENT_SUSPENDED" });
+    }
+
+    // Строгое UTF-8 после подписи и статуса, как у Платформы (РП62 п. 9): не UTF-8 — REQUEST_INVALID; BOM не снимается.
+    let text: string;
+    try { text = UTF8_STRICT.decode(raw); } catch {
+      this.violations.push(`${method} ${url.pathname}: тело не UTF-8`);
+      return fail({ code: "REQUEST_INVALID" });
     }
 
     const scripted = this.failures.get(op)?.shift();
