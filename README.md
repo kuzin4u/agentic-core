@@ -7,7 +7,7 @@ npm install
 npm test
 ```
 
-Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.12.0"` (после тега; v0.12.0 — тело подписи байтами (`HttpLike.body: string | Uint8Array`), `PaoStub` — строгое UTF-8 и `PaoStubCall.agentCode`, текст оператору у `AGENT_UNKNOWN`, К22–К24, переход — «Переход с 0.11.x»; v0.11.0 — строгий разбор дат в `/catalog` и `/diag`, `setLimit` у удержаний, К20, переход — «Переход с 0.10.x»; v0.10.0 — только добавление: подмодуль `/trials`, матрица испытаний и эмулятор ситуаций, К19; v0.9.0 — клиент ПАО не следует перенаправлениям, подписант необязателен, реестр `PAO_CLIENT_DIAG`, К18; v0.8.0 — только добавление: `/diag`, реестры кодов отказов, отчёт самопроверки, К17; v0.7.0 — ПАО 1.4.0, для типов ломающий: `Mandate.agent_code` обязателен, К16; переход с 0.11.x, 0.10.x, 0.6.x, 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Реестр кодов отказов и отчёт самопроверки — `import … from "@kuzin4u/agentic-core/diag"` (К17, с v0.8.0). Матрица испытаний — `import … from "@kuzin4u/agentic-core/trials"` (К19, с v0.10.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
+Подключение: `"@kuzin4u/agentic-core": "git+https://github.com/kuzin4u/agentic-core.git#v0.13.0"` (после тега; v0.13.0 — только добавление: подмодуль `/merchant`, набор продавца, К25; v0.12.0 — тело подписи байтами (`HttpLike.body: string | Uint8Array`), `PaoStub` — строгое UTF-8 и `PaoStubCall.agentCode`, текст оператору у `AGENT_UNKNOWN`, К22–К24, переход — «Переход с 0.11.x»; v0.11.0 — строгий разбор дат в `/catalog` и `/diag`, `setLimit` у удержаний, К20, переход — «Переход с 0.10.x»; v0.10.0 — только добавление: подмодуль `/trials`, матрица испытаний и эмулятор ситуаций, К19; v0.9.0 — клиент ПАО не следует перенаправлениям, подписант необязателен, реестр `PAO_CLIENT_DIAG`, К18; v0.8.0 — только добавление: `/diag`, реестры кодов отказов, отчёт самопроверки, К17; v0.7.0 — ПАО 1.4.0, для типов ломающий: `Mandate.agent_code` обязателен, К16; переход с 0.11.x, 0.10.x, 0.6.x, 0.4.x, 0.3.x и 0.2.x — [`CHANGELOG.md`](CHANGELOG.md), раздел «Переход»). Типы, клиент и сервер-заглушка ПАО — `import … from "@kuzin4u/agentic-core/pao"` (К5). Каталог продавца — `import … from "@kuzin4u/agentic-core/catalog"` (К8, с v0.6.0). Реестр кодов отказов и отчёт самопроверки — `import … from "@kuzin4u/agentic-core/diag"` (К17, с v0.8.0). Матрица испытаний — `import … from "@kuzin4u/agentic-core/trials"` (К19, с v0.10.0). Набор продавца — `import … from "@kuzin4u/agentic-core/merchant"` (К25, с v0.13.0). Правила и состав — [`CLAUDE.md`](CLAUDE.md).
 
 ## Каноническая сериализация (К12, с v0.5.0)
 
@@ -207,6 +207,53 @@ const r = await checkLiveOffer(product, { sku: product.sku, quantity: 2, region:
 - **Код клиента.** Отказы самого клиента несут поле `clientCode` (`PaoClientCode`). Геттер `code` по-прежнему возвращает только коды ПАО (`ErrorCode`), так что `switch` по ним не ломается. Реестр — `PAO_CLIENT_DIAG` в формате `/diag`, `component: "core"`, действие `after_fix`; перечень кодов — `PAO_CLIENT_CODES`. Реестр `PAO_DIAG` не изменился: в нём ровно 20 кодов спецификации. Проверка полноты объединённого реестра: `checkDiagRegistry([...Object.keys(PAO_DIAG), ...PAO_CLIENT_CODES], { ...PAO_DIAG, ...PAO_CLIENT_DIAG })` → `[]`.
 - **Подписант необязателен.** Без `signer` метод `call` по типам принимает только `PaoUnsignedOperationKey`; сейчас это `GET /.well-known/pao-configuration`, перечень строит генератор из спецификации. Вызов подписанной операции не компилируется. В JS или при приведении типов вызов отклоняется с `clientCode: "PAO_CLIENT_SIGNER_MISSING"` до запроса в сеть (`status: 0`, `attempts: 0`).
   - **Нюанс.** Клиент, собранный из переменной типа `PaoClientOptions`, по типам принимает все операции, потому что подписант там может быть. Тогда защищает только проверка во время выполнения.
+
+## Набор продавца (К25, с v0.13.0)
+
+`@kuzin4u/agentic-core/merchant` проверяет у продавца обращение агента покупателя и пакет агентской оплаты (РП22 платформы, MERCHANT-API §3). Основной вход его не реэкспортирует. HTTP в ядре нет: каталог ключей читает потребитель.
+
+```ts
+import { MerchantAgentVerifier, acquirerMetadata, MERCHANT_DIAG } from "@kuzin4u/agentic-core/merchant";
+import { PgNonceStore } from "@kuzin4u/agentic-core";
+
+const v = new MerchantAgentVerifier(
+  async () => {                                  // порт AgentKeySource
+    const r = await fetch("https://<платформа>/.well-known/agent-keys");
+    if (!r.ok) throw new Error(String(r.status));
+    const m = /max-age=(\d+)/.exec(r.headers.get("cache-control") ?? "");
+    return { body: await r.json(), ...(m ? { maxAgeSec: Number(m[1]) } : {}) };
+  },
+  // SKEW_SEC — signature_skew_sec Платформы; retainMs ≥ 2 × SKEW_SEC × 1000
+  { skewSec: SKEW_SEC, nonces: new PgNonceStore(sql, "merchant", { retainMs: 2 * SKEW_SEC * 1000, skewSec: SKEW_SEC }) },
+);
+const r = await v.verifyPackage({ method, path, query, headers, body: bytes }); // body — байты как пришли
+if (r.kind === "package") toAcquirer(acquirerMetadata(r.package));            // aoi — в авторизацию (ПИ-2)
+else showOperator(MERCHANT_DIAG[r.code]);
+```
+
+- **Результат `verify(req)`.** `{ kind: "agent", agentCode, kid }`, `{ kind: "refused", code }` или `{ kind: "unsigned" }`. Последний — обращение человека: продавец обслуживает его по своим правилам. Он возможен **только если нет ни одного** из заголовков `x-agent-code`, `signature`, `signature-input`, `content-digest`. Есть хотя бы один, а подпись неполна — `SIGNATURE_INVALID`.
+- **Порядок проверки.**
+  1. Ключ по `keyid` в каталоге, иначе `KEY_UNKNOWN`.
+  2. `agent_code` ключа = `x-agent-code`, иначе `AGENT_MISMATCH`.
+  3. Сейчас в пределах `nbf ≤ сейчас < exp`, иначе `KEY_EXPIRED`.
+  4. Подпись, окно `x-timestamp` и nonce, иначе `SIGNATURE_INVALID`.
+- **Тело — байты** (К22): передавайте `Uint8Array` как пришло, без декодирования. Если `body` не задан, проверка идёт как у пустого тела: digest сверяется всегда.
+- **Nonce.** Хранилище `AsyncNonceStore` — потребителя, `retainMs ≥ 2 × skewSec`. Область — у каждого агента своя.
+- **Каталог.**
+  - Кэш живёт `maxAgeSec` порта; без него — `defaultMaxAgeSec`, по умолчанию 300 с.
+  - Неизвестный `kid` вызывает одно перечитывание, но не чаще `refetchMinSec` (по умолчанию 30 с). Одновременные обращения ждут одного чтения.
+  - Ключ не по форме пропускается — для продавца он то же, что неизвестный `kid`. Число пропущенных — `catalog().skipped`.
+- **Сбой каталога.** Порт бросил исключение или тело не JWKS — этому запросу `KEYS_UNAVAILABLE`, кэш очищается, как в `verify.ts` платформы. До конца окна перечитывания остальные получают `KEY_UNKNOWN`. Вариант «ключи в пределах `max-age` действуют и после сбоя» — к пересмотру вместе с платформой (agentic-ps-platform#100 п. 3).
+- **Пакет.** `verifyPackage(req)`:
+  - разбирает тело только после верной подписи: строгий UTF-8, BOM не снимается, затем JSON и `parsePaymentPackage` (как у платформы). Иначе — `PACKAGE_INVALID`;
+  - `aoi.agent_code` ≠ агенту подписи — `PACKAGE_AGENT_MISMATCH`;
+  - читаются только поля `PaymentPackage`, сумма не переносится;
+  - `aoi.mandate_id` и `cart_mandate_id` не сверяются: нормы нет, вопрос — у платформы (#100 п. 2).
+- **Ограничения.**
+  - `payload.valid_to` — строка без проверки даты, как у платформы; к пересмотру по К20.
+  - Ключи не Ed25519 (ГОСТ, РП5) RFC 8037 не описывает: для набора они — неизвестный `kid`.
+  - Тип `PaymentPackage` ведётся вручную до схемы ПАО 1.5.0.
+- **Реестр `MERCHANT_DIAG`.** Семь кодов, `component: "core"`. `KEYS_UNAVAILABLE` — `retry_same_key`, остальные — `stop`. Имена кодов совпадают с MERCHANT-API.md. `SIGNATURE_INVALID` есть и в `PAO_DIAG`: реестры разные, смысл тот же.
 
 ## ПАО 1.4.0: статусы реквизита и `GET /pao/v1/credentials/{ref}` (№ 57 агента, К25 п. 9)
 

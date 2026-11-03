@@ -2,6 +2,29 @@
 
 Версии — по тегам `vX.Y.Z` на коммитах слияния `main`. До 1.0.0 ломающее изменение допускается минорной версией — только через `/decision` и с разделом «Переход» (К9 п. 8).
 
+## v0.13.0 — набор продавца `/merchant` (К25, CO-4)
+
+### Добавлено
+- **Подмодуль `@kuzin4u/agentic-core/merchant`** (К25; РП22 платформы) — проверка агента и пакета агентской оплаты у продавца. Одна реализация для marketplace-api, lucklyrics-platform, сторонних продавцов и эмулятора продавцов платформы.
+  - `parseAgentJwks(body)` — строгий разбор каталога ключей агентов (JWKS: `OKP`/`Ed25519`, `x` — 32 байта в каноническом base64url, не слабый ключ, `kid` = отпечаток RFC 7638, частные члены `agent_code`, `nbf`, `exp`). Ключ не по форме и дубли `kid` пропускаются и считаются в `skipped`. Ещё `okpThumbprint`, `jwkSpki`.
+  - `MerchantAgentVerifier(source, options)` с методом `verify(req)` проверяет обращение в порядке MERCHANT-API §3: `KEY_UNKNOWN`, `AGENT_MISMATCH`, `KEY_EXPIRED`, `SIGNATURE_INVALID`.
+    - Каталог приходит через порт `AgentKeySource = () => Promise<{ body, maxAgeSec? }>`, HTTP в ядре нет. Кэш живёт `max-age`; без него действует `defaultMaxAgeSec` = 300. Неизвестный `kid` даёт одно перечитывание, не чаще `refetchMinSec` = 30. Одновременные обращения ждут одного чтения.
+    - Сбой чтения — `KEYS_UNAVAILABLE`, кэш очищается, как у платформы.
+    - `{ kind: "unsigned" }` — только без заголовков агента.
+    - Подпись проверяется по байтам тела (К22). Если `body` не задан — как у пустого тела.
+    - Nonce — у каждого агента свой (`AsyncNonceStore` потребителя).
+    - `catalog()` отдаёт состояние каталога для диагностики.
+  - `verifyPackage(req)` — пакет агентской оплаты: сначала подпись, затем строгий UTF-8 и разбор `PACKAGE_INVALID`. Если `aoi.agent_code` ≠ агенту подписи — `PACKAGE_AGENT_MISMATCH`.
+  - `parsePaymentPackage`, `decodePaymentPackage` — тип `PaymentPackage` до ПАО 1.5.0; `Aoi` берётся из `/pao` только типом. `acquirerMetadata(pkg)` — признак агентской операции и метаданные для эквайрера.
+  - Реестр `MERCHANT_DIAG` (7 кодов, формат `/diag`, `component: "core"`) и перечень `MERCHANT_DIAG_CODES`.
+- README — заметка о статусах реквизита ПАО 1.4.0 (№ 57 агента): копия `spec/` не меняется, правка текста передана платформе (agentic-ps-platform#100).
+
+### Переход с 0.12.x
+Не нужен: только добавление. Основной вход и прежние подмодули не меняются. Подключение набора — `import … from "@kuzin4u/agentic-core/merchant"`.
+
+### Не изменилось
+- `spec/` (ПАО 1.4.0), `sql/` (001–004), векторы (`version` 2). `dependencies` пусты.
+
 ## v0.12.0 — тело подписи байтами, текст `AGENT_UNKNOWN`, `PaoStubCall.agentCode` (К22–К24; #40, #41, #44)
 
 ### Добавлено
