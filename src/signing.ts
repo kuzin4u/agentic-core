@@ -7,10 +7,14 @@ import { nonceStoreOptions } from "./nonce-options.js";
  *  Алгоритм — атрибут ключа: ed25519 в песочнице; ГОСТ — точка расширения через интерфейс Signer. */
 export const DEFAULT_COMPONENTS = ["@method", "@path", "@query", "content-digest", "x-agent-code", "x-timestamp", "x-nonce"] as const;
 
-export interface HttpLike { method: string; path: string; query?: string; headers: Record<string, string>; body?: string; }
+/** Тело — строка (digest от её UTF-8) или байты как пришли (К22): тело не в UTF-8 проверяется только по байтам. */
+export interface HttpLike { method: string; path: string; query?: string; headers: Record<string, string>; body?: string | Uint8Array; }
 
-export function contentDigest(body: string): string {
-  return "sha-256=:" + createHash("sha256").update(body).digest("base64") + ":";
+/** `content-digest` тела: строка — SHA-256 от UTF-8; `Uint8Array` / `Buffer` — от байтов самого представления
+ *  (`byteOffset`, `byteLength`), не от `.buffer` целиком: у среза и у малого `Buffer` из пула он общий с чужими байтами (К22 п. 1). */
+export function contentDigest(body: string | Uint8Array): string {
+  const data = typeof body === "string" ? body : Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  return "sha-256=:" + createHash("sha256").update(data).digest("base64") + ":";
 }
 
 export function signatureBase(req: HttpLike, components: readonly string[] = DEFAULT_COMPONENTS): string {
@@ -49,7 +53,10 @@ export const ed25519Verifier: Verifier = {
   },
 };
 
-export function signRequest(req: HttpLike, signer: Signer, components: readonly string[] = DEFAULT_COMPONENTS): HttpLike {
+/** Обобщённая (К22 п. 3): тип результата — тип запроса, строковое тело остаётся строковым у вызывающего. */
+export function signRequest<T extends HttpLike>(
+  req: T, signer: Signer, components: readonly string[] = DEFAULT_COMPONENTS,
+): T & { headers: Record<string, string> } {
   const headers = { ...req.headers };
   if (req.body !== undefined) headers["content-digest"] = contentDigest(req.body);
   const withDigest = { ...req, headers };
