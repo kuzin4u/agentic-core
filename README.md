@@ -93,6 +93,8 @@ await nonces.purge(); // по расписанию
 - Digest — от байтов самого представления (`byteOffset`, `byteLength`), не от `.buffer`: срез `subarray` и малый `Buffer` из пула делят `ArrayBuffer` с чужими байтами.
 - BOM — часть тела: digest с BOM и без него разный; ядро BOM не снимает.
 - `signRequest` обобщённая: возвращает тип запроса с заголовками подписи — строковое тело остаётся `string` у вызывающего.
+- **`PaoStub`** (`/pao`) проверяет подпись по байтам, затем — после статуса агента — декодирует тело строго: не UTF-8 — 400 `REQUEST_INVALID` и запись `тело не UTF-8` в `violations` (до v0.12.0 — 401 `SIGNATURE_INVALID`). BOM не снимается, как у Платформы: JSON с BOM — `тело не JSON`.
+- В типах `lib` `Uint8Array<ArrayBufferLike>` не `BodyInit` (`fetch`): при отправке байтов из `HttpLike.body` нужен `Buffer` или приведение.
 
 ## Слабые ключи Ed25519 (К10, с v0.3.0)
 

@@ -28,7 +28,7 @@ async function setup(stubOpts: Partial<PaoStubOptions> = {}, clientOpts: Partial
   const baseUrl = await stub.start();
   const sleeps: number[] = [];
   const client = new PaoClient({ baseUrl, agentCode: AGENT, signer, sleep: async (ms) => { sleeps.push(ms); }, ...clientOpts });
-  return { stub, client, sleeps, publicKey, baseUrl };
+  return { stub, client, sleeps, publicKey, baseUrl, signer };
 }
 
 const rejected = (p: Promise<unknown>) => p.then(() => { throw new Error("ожидался отказ"); }, (e: unknown) => e as PaoCallError);
@@ -317,12 +317,42 @@ describe("ПАО: клиент против заглушки", () => {
 
 describe("ПАО: заглушка по РП23 (порядок проверки, статус, ключи, журнал обращений)", () => {
   /** Подписанное обращение в обход клиента: headers можно испортить до отправки. */
-  function signed(signer: Signer, method: string, path: string, nonce: string, body = "") {
+  function signed(signer: Signer, method: string, path: string, nonce: string, body: string | Uint8Array = "") {
     const headers = { "x-agent-code": AGENT, "x-timestamp": new Date().toISOString().slice(0, 19) + "Z", "x-nonce": nonce };
     return signRequest({ method, path, query: "", headers, body }, signer).headers;
   }
-  const send = (baseUrl: string, method: string, path: string, headers: Record<string, string>, body?: string) =>
-    fetch(baseUrl + path, { method, headers: { ...headers, "content-type": "application/json" }, body });
+  const send = (baseUrl: string, method: string, path: string, headers: Record<string, string>, body?: string | Uint8Array) =>
+    // Uint8Array<ArrayBufferLike> в типах lib не BodyInit (мог бы быть SharedArrayBuffer) — приведение только в тесте
+    fetch(baseUrl + path, { method, headers: { ...headers, "content-type": "application/json" }, body: body as BodyInit | undefined });
+
+  describe("тело байтами (К22 п. 4)", () => {
+    const P = "/pao/v1/mandates";
+    const notUtf8 = Buffer.concat([Buffer.from('{"x":"'), Buffer.from([0xff, 0xfe]), Buffer.from('"}')]);
+    it("подписанное тело не UTF-8 — подпись по байтам проходит, затем 400 REQUEST_INVALID (не 401)", async () => {
+      const { stub, baseUrl, signer } = await setup();
+      const h = { ...signed(signer, "POST", P, "nb-1", notUtf8), "idempotency-key": "ik-nb" };
+      const r = await send(baseUrl, "POST", P, h, notUtf8);
+      expect([r.status, (await r.json()).code]).toEqual([400, "REQUEST_INVALID"]);
+      expect(stub.calls.map((c) => [c.status, c.code])).toEqual([[400, "REQUEST_INVALID"]]);
+      expect(stub.violations).toEqual([`POST ${P}: тело не UTF-8`]);
+    });
+    it("испорченная подпись и тело не UTF-8 — сначала подпись: 401 SIGNATURE_INVALID", async () => {
+      const { stub, baseUrl, signer } = await setup();
+      const h = { ...signed(signer, "POST", P, "nb-2", notUtf8), "idempotency-key": "ik-nb2" };
+      const r = await send(baseUrl, "POST", P, { ...h, signature: "sig1=:" + Buffer.alloc(64).toString("base64") + ":" }, notUtf8);
+      expect([r.status, (await r.json()).code]).toEqual([401, "SIGNATURE_INVALID"]);
+      expect(stub.violations).toEqual([]);
+    });
+    it("BOM не снимается (как у Платформы): UTF-8 верный, тело с BOM — не JSON", async () => {
+      const { stub, baseUrl, signer } = await setup();
+      const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(REQ))]);
+      const h = { ...signed(signer, "POST", P, "nb-3", bom), "idempotency-key": "ik-nb3" };
+      await send(baseUrl, "POST", P, h, bom);
+      expect(stub.calls[0]!.code).not.toBe("REQUEST_INVALID");
+      expect(stub.violations).toContain(`POST ${P}: тело не JSON`);
+      expect(stub.violations).not.toContain(`POST ${P}: тело не UTF-8`);
+    });
+  });
 
   it.each(["SUSPENDED", "EXCLUDED"] as const)("%s: GET /pao/v1/agent — 200 со статусом, остальное — 403 AGENT_SUSPENDED", async (status) => {
     const { client, stub } = await setup({ handlers: { "POST /pao/v1/mandates": ({ body }) => ({ body: created(body) }) } });
