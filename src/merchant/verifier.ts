@@ -2,6 +2,7 @@
 // Каталог ключей — через порт потребителя, HTTP в ядре нет. Подпись — по байтам тела (К22).
 import { ed25519Verifier, verifyRequestAsync, type AsyncNonceStore, type HttpLike, type Verifier } from "../signing.js";
 import { jwkSpki, parseAgentJwks, type AgentJwk } from "./jwks.js";
+import { decodePaymentPackage, type PaymentPackage } from "./package.js";
 
 /** Порт каталога: тело ответа `/.well-known/agent-keys` и `max-age` из `Cache-Control` (К25 п. 3). */
 export type AgentKeySource = () => Promise<{ body: unknown; maxAgeSec?: number }>;
@@ -14,6 +15,13 @@ export type MerchantAuthResult =
   | { readonly kind: "unsigned" }
   | { readonly kind: "agent"; readonly agentCode: string; readonly kid: string }
   | { readonly kind: "refused"; readonly code: MerchantAuthCode };
+
+/** Коды отказа проверки пакета: коды обращения и коды пакета (К25 п. 6). */
+export type MerchantPackageCode = MerchantAuthCode | "PACKAGE_INVALID" | "PACKAGE_AGENT_MISMATCH";
+
+export type MerchantPackageResult =
+  | { readonly kind: "package"; readonly agentCode: string; readonly kid: string; readonly package: PaymentPackage }
+  | { readonly kind: "refused"; readonly code: MerchantPackageCode };
 
 export interface MerchantVerifierOptions {
   /** окно `x-timestamp`, с (`signature_skew_sec` Платформы); обязательно */
@@ -148,6 +156,17 @@ export class MerchantAgentVerifier {
       },
     );
     return r.ok ? { kind: "agent", agentCode, kid } : refused("SIGNATURE_INVALID");
+  }
+
+  /** Пакет агентской оплаты (К25 п. 6): сначала подпись, затем строгий разбор тела, затем `aoi.agent_code` ↔ агент подписи. */
+  async verifyPackage(req: HttpLike): Promise<MerchantPackageResult> {
+    const auth = await this.verify(req);
+    if (auth.kind === "unsigned") return { kind: "refused", code: "SIGNATURE_INVALID" };
+    if (auth.kind === "refused") return auth;
+    const pkg = decodePaymentPackage(req.body);
+    if (!pkg) return { kind: "refused", code: "PACKAGE_INVALID" };
+    if (pkg.aoi.agent_code !== auth.agentCode) return { kind: "refused", code: "PACKAGE_AGENT_MISMATCH" };
+    return { kind: "package", agentCode: auth.agentCode, kid: auth.kid, package: pkg };
   }
 }
 

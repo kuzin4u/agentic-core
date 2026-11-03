@@ -2,3 +2,4 @@
  *  тела, признак агентской операции для эквайрера, реестр кодов `MERCHANT_DIAG`; основной вход пакета их не реэкспортирует. */
 export * from "./jwks.js";
 export * from "./verifier.js";
+export * from "./package.js";
