@@ -1,7 +1,6 @@
 {
   "name": "@kuzin4u/agentic-core",
   "version": "0.13.1",
-  "private": true,
   "license": "Apache-2.0",
   "description": "Общие механизмы агентной коммерции: каноническая сериализация, журнал с хэш-цепочкой, удержания резерв/закрепление/освобождение, идемпотентность, подпись обращений, доставка событий, суммы в минимальных единицах с валютой",
   "type": "module",
@@ -45,7 +44,8 @@
     "vectors": "node vectors/gen.mjs",
     "gen:pao": "node scripts/gen-pao.mjs",
     "gen:trials": "node scripts/gen-trials.mjs",
-    "scan:secrets": "python3 .claude/hooks/scan_secrets.py ."
+    "scan:secrets": "python3 .claude/hooks/scan_secrets.py .",
+    "prepublishOnly": "node -e \"process.exit(1)\""
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
