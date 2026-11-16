@@ -1,0 +1,1 @@
+- [@kuzin4u/agentic-core@0.13.1](https://github.com/kuzin4u/agentic-core) - Apache-2.0
