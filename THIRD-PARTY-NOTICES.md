@@ -1,1 +1,1 @@
-- [@kuzin4u/agentic-core@0.13.1](undefined) - Apache-2.0
+- [@kuzin4u/agentic-core@0.13.1](https://github.com/kuzin4u/agentic-core) - Apache-2.0

@@ -2,6 +2,10 @@
   "name": "@kuzin4u/agentic-core",
   "version": "0.13.1",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kuzin4u/agentic-core.git"
+  },
   "description": "Общие механизмы агентной коммерции: каноническая сериализация, журнал с хэш-цепочкой, удержания резерв/закрепление/освобождение, идемпотентность, подпись обращений, доставка событий, суммы в минимальных единицах с валютой",
   "type": "module",
   "main": "dist/src/index.js",
