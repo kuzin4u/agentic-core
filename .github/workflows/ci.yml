@@ -40,8 +40,11 @@ jobs:
         run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - name: Аудит зависимостей работающего кода
         run: npm audit --omit=dev --audit-level=high
-      - name: Аудит инструментов разработки
-        run: npm audit --audit-level=high
+      # Исключение одного advisory GHSA-fc5q-39xc-vjpf (ReDoS в picomatch) — К27, по образцу РП79 платформы,
+      # передача #50. Порог high и дерево (прод и разработка) те же; --omit=dev к этому шагу не применяется.
+      # Снимается, когда зелёным станет `npm audit --audit-level=high` без конфигурации исключений.
+      - name: Аудит инструментов разработки (исключение по К27)
+        run: npx audit-ci --config audit-ci.json
       - name: Проверка типов
         run: npm run check
       - name: Тесты и сценарии приёмки (PostgreSQL — сервис postgres:16)
